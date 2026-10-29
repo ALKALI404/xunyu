@@ -1,0 +1,27 @@
+# 凭据与私密（永不入库）
+config.json
+*secret*
+*token*
+.env
+*.pem
+*.key
+state/
+logs/
+History/
+memory/
+mail/
+chats/
+backup/
+tmp/
+node_modules/
+
+# 二进制与产物
+*.exe
+*.dll
+*.zip
+*.7z
+*.nupkg
+*.log
+*.jsonl
+*.zst
+*.pdb

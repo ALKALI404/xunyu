@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>鲟鱼</title>
+<style>
+  :root{
+    --bg:#faf7f2; --panel:#ffffff; --panel2:#f3efe8; --line:#e6e0d5;
+    --fg:#2b2b2b; --muted:#8b8f96; --accent:#7fa7f0; --accent2:#5b7cfa;
+    --ok:#3f9d74; --warn:#c98a1e; --bad:#d9645c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font:13px/1.5 "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",sans-serif;overflow:hidden}
+  button{font:inherit}
+  .app{height:100%;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);flex:none}
+  .brand{font-weight:700;letter-spacing:.5px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
+  .stat{color:var(--muted);font-size:12px}
+  .tabs{display:flex;gap:4px;margin-left:12px}
+  .tab{padding:3px 12px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
+  .tab.on{background:var(--panel2);border-color:var(--line);color:var(--fg)}
+  .grow{flex:1}
+  .iconbtn{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:6px;padding:3px 9px;cursor:pointer}
+  .iconbtn:hover{color:var(--fg);border-color:var(--accent)}
+  .shell{flex:1;display:grid;grid-template-columns:auto 1fr 280px;min-height:0}
+  .shell.noright{grid-template-columns:240px 1fr 0}
+  aside{background:var(--panel);border-right:1px solid var(--line);overflow:auto;min-width:0}
+  /* D47：左栏默认只有 48px 窄条，点开才展开并加载会话列表 */
+  #left{width:48px;overflow:hidden;transition:width .16s ease;display:flex;flex-direction:column;padding:0}
+  #left.open{width:280px}
+  #left .railBtn{display:flex;align-items:center;justify-content:center;position:relative;width:48px;height:44px;border:0;background:transparent;cursor:pointer;font-size:18px;flex:none}
+  #left .railBtn:hover{background:var(--panel2)}
+  #left .railDot{position:absolute;top:6px;right:6px;min-width:16px;height:16px;border-radius:999px;background:var(--bad);color:#fff;font-size:10px;line-height:16px;text-align:center;padding:0 4px;display:none}
+  #left .leftBody{display:none;flex:1;overflow:auto;min-width:0}
+  #left.open .leftBody{display:block}
+  .skel{padding:12px 16px;color:var(--weak);font-size:12px}
+  aside.right{border-right:0;border-left:1px solid var(--line)}
+  .shell.noright aside.right{display:none}
+  .sec{color:var(--muted);font-size:11px;padding:10px 12px 4px}
+  .row{display:flex;gap:8px;align-items:center;padding:8px 12px;cursor:pointer;border-left:2px solid transparent}
+  .row:hover{background:var(--panel2)}
+  .row.on{background:var(--panel2);border-left-color:var(--accent)}
+  .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .tm{color:var(--muted);font-size:11px}
+  .badge{background:var(--bad);color:#fff;font-size:10px;border-radius:8px;padding:0 5px;min-width:16px;text-align:center}
+  main.chat{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+  .stream{flex:1;overflow:auto;min-height:0;padding:14px 18px 8px}
+  .stream.panning{cursor:grabbing;user-select:none}
+  .msg{max-width:76%;margin:0 0 10px;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word;line-height:1.55}
+  .msg.her{background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:4px}
+  .msg.me{background:var(--accent);color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+  .msg.sys{background:transparent;color:var(--muted);font-size:12px;text-align:center;max-width:100%;margin:6px 0}
+  .histbar{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex:none}
+  .histbar .info{color:var(--muted);font-size:12px;margin-left:auto}
+  .composer{flex:none;min-height:44px;padding:10px 14px 14px;display:flex;gap:8px}
+  .composer textarea{flex:1;resize:none;height:68px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:inherit;background:var(--panel);color:var(--fg);outline:none}
+  .composer textarea:focus{border-color:var(--accent)}
+  .send{width:74px;border:0;border-radius:10px;background:var(--accent2);color:#fff;cursor:pointer;font-weight:600}
+  .send:hover{filter:brightness(1.05)}
+  .card{margin:10px 12px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:10px}
+  .card h4{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:600}
+  .kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0}
+  .kv b{font-weight:600}
+  .tiny{color:var(--muted);font-size:11px}
+  .tag{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--muted);margin-right:4px}
+  .tag.ok{color:var(--ok);border-color:#b8ddc8}
+  .tag.warn{color:var(--warn);border-color:#e8d3a6}
+  .tag.bad{color:var(--bad);border-color:#efc3bf}
+  /* 工作台页 */
+  .deskframe{flex:1;border:0;width:100%;background:#faf7f2;display:none}
+  body.desk .shell{display:none}
+  body.desk .deskframe{display:block}
+  /* 工作区（D48）：分类 → 子菜单 → 启动 */
+  .spaceview{flex:1;display:none;flex-direction:column;min-height:0}
+  body.desk .spaceview,body.space .deskframe{display:none}
+  body.space .shell{display:none}
+  body.space .spaceview{display:flex}
+  .spaceHead{display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex:none}
+  .crumb{color:var(--dim);font-size:12px}
+  .spaceBody{flex:1;overflow:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-content:start}
+  .spaceBody.hide{display:none}
+  .catCard{display:flex;flex-direction:column;gap:8px;padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer;text-align:left;font:inherit;color:var(--fg)}
+  .catCard:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .catName{font-size:16px;font-weight:600}
+  .catNum{color:var(--dim);font-size:12px}
+  .toolRow{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  .toolIcon{font-size:18px;width:28px;text-align:center}
+  .toolMain{flex:1}
+  .toolName{font-weight:600}
+  .toolDesc{color:var(--dim);font-size:12px}
+  .spaceFrame{flex:1;border:0;width:100%;display:none;background:#fff}
+  .spaceFrame.on{display:block}
+  .toolErr{color:var(--bad);font-size:12px;margin-top:4px;display:none}
+  .toolErr.on{display:block}
+  /* 命令面板 */
+  .palette{position:fixed;inset:0;background:rgba(43,43,43,.18);display:none;align-items:flex-start;justify-content:center;z-index:50}
+  .palette.on{display:flex}
+  .pbox{margin-top:12vh;width:min(560px,86vw);background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.16);overflow:hidden}
+  .pbox input{width:100%;border:0;border-bottom:1px solid var(--line);padding:13px 15px;font:inherit;outline:none;background:transparent;color:var(--fg)}
+  .plist{max-height:44vh;overflow:auto}
+  .pitem{padding:9px 15px;cursor:pointer;display:flex;justify-content:space-between;gap:10px}
+  .pitem.on,.pitem:hover{background:var(--panel2)}
+  /* 窄屏 */
+  @media(max-width:900px){
+    .shell{grid-template-columns:1fr}
+    .shell aside{display:none}
+    #left{width:auto;display:none}
+    #left.open{display:block}
+    #left .railBtn{display:none}
+    #left .leftBody{display:block}
+    .shell aside.open{display:block;position:fixed;top:47px;bottom:0;left:0;width:min(320px,86vw);z-index:40;box-shadow:0 0 30px rgba(0,0,0,.12)}
+    .shell aside.right.open{left:auto;right:0;border-left:1px solid var(--line)}
+    .narrowonly{display:inline-block!important}
+  }
+  .narrowonly{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <span class="dot" id="dot"></span>
+    <span class="brand">鲟鱼</span>
+    <span class="stat" id="stat">连接中…</span>
+    <nav class="tabs">
+      <button class="tab on" data-view="chat" id="tabChat">聊天</button>
+      <button class="tab" data-view="desk" id="tabDesk">工作台</button>
+      <button class="tab" data-view="space" id="tabSpace">工作区</button>
+    </nav>
+    <span class="grow"></span>
+    <button class="iconbtn narrowonly" id="btnLeft">☰</button>
+    <button class="iconbtn" id="btnPalette">Ctrl+K</button>
+    <button class="iconbtn" id="btnRight">信息</button>
+    <button class="iconbtn" id="btnSettings">设置</button>
+  </header>
+
+  <div class="shell" id="shell">
+    <aside id="left" class="rail">
+      <button class="railBtn" id="leftToggle" title="会话列表（点击展开 / 再点收起，Esc 也可以）">
+        <span class="railIcon">💬</span>
+        <span class="railDot" id="railDot"></span>
+      </button>
+      <div class="leftBody" id="leftBody">
+        <div class="sec">会话</div>
+        <div class="row on" data-t="xunyu"><span class="dot on"></span><span class="nm">鲟鱼（QQ 侧）</span><span class="tm">↔</span></div>
+        <div class="row" data-t="dsh"><span class="dot on"></span><span class="nm">DSH（我这边）</span><span class="tm">↔</span></div>
+        <div class="sec">工号 / 对象（只读）</div>
+        <div id="agents"><div class="skel">加载中…</div></div>
+      </div>
+    </aside>
+
+    <main class="chat">
+      <div class="histbar" id="histbar">
+        <button class="btn" id="loadMore">加载更早的消息（+100）</button>
+        <span class="info" id="histInfo">已加载 — / 共 —</span>
+      </div>
+      <div class="stream" id="stream"></div>
+      <div class="composer">
+        <textarea id="input" placeholder="打字回车发给我（Shift+Enter 换行）"></textarea>
+        <button class="send" id="btnSend">发送</button>
+      </div>
+    </main>
+
+    <aside class="right" id="right">
+      <div class="sec">这个会话</div>
+      <div id="info"><div class="card"><div class="tiny">点左边任一工号查看</div></div></div>
+    </aside>
+  </div>
+
+  <iframe class="deskframe" id="deskFrame" src="about:blank" title="工作台"></iframe>
+
+  <div class="spaceview" id="spaceView">
+    <div class="spaceHead" id="spaceHead"></div>
+    <div class="spaceBody" id="spaceBody"></div>
+    <iframe class="spaceFrame" id="spaceFrame" src="about:blank" title="工作区工具"></iframe>
+  </div>
+</div>
+
+<div class="palette" id="palette">
+  <div class="pbox">
+    <input id="pquery" placeholder="输入：会话名 / 工号 / 「工作台」/「设置」">
+    <div class="plist" id="plist"></div>
+  </div>
+</div>
+
+<script>
+const RELAY='http://127.0.0.1:9334', DESK='http://127.0.0.1:9340';
+const $=(id)=>document.getElementById(id);
+const esc=(s)=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clock=(t)=>t?new Date(t).toLocaleTimeString('zh-CN',{hour12:false}):'';
+
+const S={target:'xunyu',cursor:{xunyu:0,dsh:0},streams:{xunyu:[],dsh:[]},online:false,agents:[],wl:null,health:null,sel:null,histTotal:0,histReady:false};
+
+// ── 渲染 ────────────────────────────────────────────────────────────────
+function drawStream(keepScroll){
+  const el=$('stream');
+  if(!el)return;
+  const oldH=el.scrollHeight,oldTop=el.scrollTop;
+  const list=S.streams[S.target]||[];
+  el.innerHTML=list.length?list.map(m=>{
+    if(m.kind==='sys')return '<div class="msg sys">'+esc(m.text)+'</div>';
+    return '<div class="msg '+(m.kind==='me'?'me':'her')+'">'+esc(m.text)+'</div>';
+  }).join(''):'<div class="msg sys">还没有消息。打字回车发给我。</div>';
+  if(keepScroll)el.scrollTop=oldTop+(el.scrollHeight-oldH);   // 加载更早：把视口按「新增高度」往下推，位置不跳
+  else el.scrollTop=el.scrollHeight;
+}
+function appendMsg(kind,text,at){
+  if(kind!=='sys'&&!text)return;
+  const arr=(S.streams[S.target]=S.streams[S.target]||[]);
+  const t=at||Date.now();
+  const last=arr[arr.length-1];
+  if(last&&last.text===text&&Math.abs((last.t||0)-t)<2000)return;   // 历史+增量可能同一条，别画两遍
+  arr.push({kind:kind,text:text,t:t});
+  if(arr.length>2000)arr.splice(0,arr.length-1600);
+  drawStream();
+}
+
+// ── 本地历史（D40 读文件 / D46 分页）：壳读 History\window\<鲟鱼|dsh>\*.jsonl 回传 ──
+const bridge=(window.chrome&&window.chrome.webview)?window.chrome.webview:null;
+const HIST={xunyu:{loaded:0,total:0,loading:false,fetched:false},dsh:{loaded:0,total:0,loading:false,fetched:false}};
+function mapTarget(t){const s=String(t||'');return s==='鲟鱼'?'xunyu':(s.toLowerCase()==='dsh'?'dsh':null)}
+function histBar(){
+  const h=HIST[S.target]||HIST.xunyu;
+  const btn=$('loadMore'),info=$('histInfo');
+  if(!btn||!info)return;
+  info.textContent='已加载 '+h.loaded+' / 共 '+h.total+' 条';
+  if(h.total>0&&h.loaded>=h.total){btn.disabled=true;btn.textContent='没有更早的消息了'}
+  else{btn.disabled=Boolean(h.loading);btn.textContent='加载更早的消息（+100）'}
+}
+function requestHistory(limit,offset){
+  if(!bridge)return;
+  const tg=S.target==='dsh'?'dsh':'xunyu';
+  const h=HIST[tg]||(HIST[tg]={loaded:0,total:0,loading:false,fetched:false});
+  if(h.loading)return;
+  h.loading=true;histBar();
+  try{bridge.postMessage({type:'history:load',target:tg,limit:limit||200,offset:offset||0})}
+  catch(e){h.loading=false;histBar()}
+}
+function applyHistory(d){
+  const tg=String((d&&d.target)||'xunyu');
+  const lines=(d&&d.lines)||[];
+  const h=HIST[tg]||(HIST[tg]={loaded:0,total:0,loading:false,fetched:false});
+  h.loading=false;h.fetched=true;
+  h.total=Number(d&&d.total)||0;
+  h.loaded=Number(d&&d.loaded)||(Number((d&&d.offset)||0)+lines.length);
+  const mapped=lines.map(r=>({kind:(r.from==='agent'?'her':'me'),text:String(r.text||''),t:Number(r.t)||0}));
+  const arr=S.streams[tg]||(S.streams[tg]=[]);
+  const fresh=mapped.filter(m=>!arr.some(x=>x.t===m.t&&x.text===m.text));
+  const isCurrent=(S.target==='dsh'?'dsh':'xunyu')===tg;
+  const keep=isCurrent&&Number((d&&d.offset)||0)>0;   // 只有「加载更多」才保位置；首次加载滚到底
+  S.streams[tg]=fresh.concat(arr).slice(-2000);
+  if(isCurrent)drawStream(keep);
+  histBar();
+}
+// 工作台 iframe 里的「打开文档」请求：跨域 iframe 的 chrome.webview.postMessage 到不了宿主，由这里转发
+window.addEventListener('message',(e)=>{
+  if(!e.data||e.data.type!=='desk:open')return;
+  if(!/^http:\/\/127\.0\.0\.1:9340$/.test(String(e.origin||'')))return;   // 只认工作台那个 origin
+  if(bridge){try{bridge.postMessage({type:'open',path:String(e.data.path||'')})}catch(err){}}
+});
+if(bridge)bridge.addEventListener('message',(e)=>{
+  const d=e.data;
+  if(d&&d.type==='history:data')applyHistory(d);
+  else if(d&&d.type==='proc:data')onProcData(d);
+  else if(d&&d.type==='launch:result')onLaunchResult(d);
+});
+async function alignCursor(){
+  try{
+    const r=await fetch(RELAY+'/lines?after=999999999&target='+S.target+'&client=web',{cache:'no-store'}).then(x=>x.json());
+    if(r&&r.ok)S.cursor[S.target]=r.cursor||0;
+  }catch(e){}
+}
+// ── 中键（D40）：按住拖=平移滚动；单击=跳到最近一条他人消息 ──
+function jumpToLastOther(){
+  const list=[...document.querySelectorAll('.msg.her')];
+  if(!list.length)return;
+  list[list.length-1].scrollIntoView({block:'center',behavior:'smooth'});
+}
+(function(){
+  const el=$('stream');
+  let pan=null;
+  el.addEventListener('pointerdown',e=>{
+    if(e.button!==1)return;
+    e.preventDefault();
+    pan={y:e.clientY,top:el.scrollTop,moved:0,t:Date.now()};
+    el.classList.add('panning');
+  });
+  el.addEventListener('pointermove',e=>{
+    if(!pan)return;
+    const dy=e.clientY-pan.y;
+    if(Math.abs(dy)>pan.moved)pan.moved=Math.abs(dy);
+    el.scrollTop=pan.top-dy;
+  });
+  window.addEventListener('pointerup',e=>{
+    if(!pan)return;
+    const isClick=(pan.moved<4)&&((Date.now()-pan.t)<350);
+    el.classList.remove('panning');
+    pan=null;
+    if(isClick)jumpToLastOther();
+  });
+  el.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault()});
+})();
+
+function drawStatus(){
+  $('dot').className='dot '+(S.online?'on':'off');
+  $('stat').textContent=S.online?('relay 在线'+(S.health&&S.health.queue?' · 队列 '+S.health.queue.depth:'')):'relay 断开，重连中…';
+}
+function drawAgents(){
+  const rows=(S.agents||[]).filter(a=>a.running||a.live||a.no||/鲟鱼|QQ|子实体|企微|黑话/.test(String(a.title||'')));
+  const groups={};['工作组','本体','QQ 通道','其他'].forEach(g=>groups[g]=[]);
+  rows.forEach(a=>{
+    const t=String(a.title||'');
+    const g=a.no?'工作组':(/本体/.test(t)?'本体':(/QQ|子实体|黑话/.test(t)?'QQ 通道':'其他'));
+    groups[g].push(a);
+  });
+  let html='';
+  ['工作组','本体','QQ 通道','其他'].forEach(g=>{
+    const list=groups[g];if(!list.length)return;
+    html+='<div class="sec">'+g+'</div>';
+    list.sort((a,b)=>Number(b.live)-Number(a.live)||Number(b.running)-Number(a.running)).forEach(a=>{
+      const live=a.live||a.running;
+      const nm=a.no?('工号'+a.no):String(a.title||'').replace(/^鲟鱼工作组/,'').replace(/^鲟鱼[—-]/,'');
+      html+='<div class="row" data-agent="'+esc(a.id)+'"><span class="dot '+(live?'on':'')+'"></span>'+
+        '<span class="nm">'+esc(nm)+'</span><span class="tm">'+esc(a.idleText||'')+'</span></div>';
+    });
+  });
+  $('agents').innerHTML=html;
+  document.querySelectorAll('[data-agent]').forEach(el=>el.addEventListener('click',()=>selectAgent(el.dataset.agent)));
+}
+function selectAgent(id){
+  const a=(S.agents||[]).find(x=>x.id===id);if(!a)return;
+  S.sel=id;
+  document.querySelectorAll('.row').forEach(r=>r.classList.remove('on'));
+  document.querySelectorAll('[data-agent="'+id+'"]').forEach(r=>r.classList.add('on'));
+  drawInfo(a);
+  if(window.innerWidth<=900)document.getElementById('right').classList.add('open');
+}
+function drawInfo(a){
+  const groups=(S.wl&&S.wl.groups)||[];
+  const g=a.no?groups.find(x=>String(x.target)===String(a.no)):null;
+  const doing=a.doing||'—';
+  const q=g?(g.queue||[]).length:(a.queued||0);
+  const next=a.nextTask?(' · '+a.nextTask.ticket):'';
+  const subs=(S.wl&&S.wl.submitted)||[];
+  const mine=subs.filter(t=>String(t.target)===String(a.no));
+  const at=(S.health&&S.health.attribution&&S.health.attribution.buckets)||[];
+  let cost='—';
+  for(const b of at){const u=(b.units||[]).find(x=>x.label&&(a.no?x.label.indexOf('工号'+a.no)===0:false));if(u){cost='¥'+(u.cost||0).toFixed(2);break}}
+  $('info').innerHTML=
+    '<div class="card"><h4>'+esc(a.no?('工号'+a.no):String(a.title||''))+'</h4>'+
+      '<div class="kv"><span>状态</span><b>'+(a.live?'在干活':(a.running?'在跑':'空闲'))+'</b></div>'+
+      '<div class="kv"><span>空闲</span><b>'+esc(a.idleText||'—')+'</b></div>'+
+      '<div class="kv"><span>今日</span><b>'+esc(cost)+'</b></div>'+
+    '</div>'+
+    '<div class="card"><h4>正在干什么</h4><div class="tiny">'+esc(doing)+'</div></div>'+
+    '<div class="card"><h4>排队</h4><div class="kv"><span>queued</span><b>'+q+next+'</b></div>'+
+      ((g&&(g.queue||[]).length)?g.queue.map(t=>'<div class="tiny">· '+esc(t.ticket||t.id)+' '+esc(t.title)+'</div>').join(''):'<div class="tiny">没有排队</div>')+
+    '</div>'+
+    (mine.length?('<div class="card"><h4>待验收</h4>'+mine.map(t=>'<div class="tiny">· '+esc(t.id)+' '+esc(t.title)+'</div>').join('')+'</div>'):'');
+}
+
+// ── 数据 ────────────────────────────────────────────────────────────────
+async function ping(){
+  try{
+    const h=await fetch(RELAY+'/health',{cache:'no-store'}).then(r=>r.json());
+    S.online=!!h.ok;S.health=h;
+  }catch(e){S.online=false}
+  drawStatus();
+}
+async function pullLines(){
+  try{
+    const r=await fetch(RELAY+'/lines?after='+S.cursor[S.target]+'&target='+S.target+'&client=web',{cache:'no-store'}).then(x=>x.json());
+    if(!r.ok)return;
+    if(Array.isArray(r.lines))for(const ln of r.lines){
+      if(ln.n>S.cursor[S.target])S.cursor[S.target]=ln.n;
+      if(ln.from==='agent'&&ln.text){
+        appendMsg('her',ln.text);
+        if(!sidebarOpen){unread++;updateRailDot()}   // D47：窄条红点靠 relay 增量，不依赖列表
+      }
+    }
+  }catch(e){}
+}
+// ── 左栏折叠（D47）：默认 48px 窄条，展开才拉会话列表；状态记 localStorage ──
+let sidebarOpen=false,listLoaded=false,listScrollTop=0,unread=0;
+function updateRailDot(){
+  const d=$('railDot');if(!d)return;
+  if(sidebarOpen||unread<=0){d.style.display='none';return}
+  d.style.display='block';d.textContent=unread>99?'99+':String(unread);
+}
+function applySidebar(){
+  const left=$('left');if(!left)return;
+  left.classList.toggle('open',sidebarOpen);
+  updateRailDot();
+  if(sidebarOpen){const b=$('leftBody');if(b)b.scrollTop=listScrollTop}
+}
+function toggleSidebar(){
+  sidebarOpen=!sidebarOpen;
+  if(!sidebarOpen){const b=$('leftBody');listScrollTop=b?(b.scrollTop||0):0}
+  try{localStorage.setItem('sidebarOpen',sidebarOpen?'1':'0')}catch(e){}
+  if(sidebarOpen){unread=0}
+  applySidebar();
+  if(sidebarOpen)loadList();   // ★ 只有展开才拉列表
+}
+async function loadList(){
+  if(listLoaded)return;
+  listLoaded=true;
+  $('agents').innerHTML='<div class="skel">加载中…</div>';
+  await pullDesk();
+  if(!S.agents||!S.agents.length)$('agents').innerHTML='<div class="skel">列表为空（DSH 投影读不到）</div>';
+}
+async function pullDesk(){
+  // D47：收起且没选工号时，一个会话列表接口都不打（冷启动零请求）
+  if(!sidebarOpen&&!S.sel)return;
+  try{
+    const [a,w,h]=await Promise.all([
+      fetch(DESK+'/api/agents',{cache:'no-store'}).then(r=>r.json()),
+      fetch(DESK+'/api/worklist',{cache:'no-store'}).then(r=>r.json()),
+      fetch(DESK+'/api/sessions-health',{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
+    ]);
+    S.agents=a.agents||[];S.wl=w;S.health=(S.health||{});if(h)S.attr=h.attribution;
+    if(S.attr)S.health.attribution=S.attr;
+    drawAgents();
+    if(S.sel){const x=S.agents.find(z=>z.id===S.sel);if(x)drawInfo(x)}
+  }catch(e){}
+}
+
+// ── 交互 ────────────────────────────────────────────────────────────────
+function setTarget(t){
+  if(S.target===t)return;
+  S.target=t;
+  document.querySelectorAll('[data-t]').forEach(r=>r.classList.toggle('on',r.dataset.t==t));
+  drawStream();
+  histBar();
+  const h=HIST[t]||(HIST[t]={loaded:0,total:0,loading:false,fetched:false});
+  if(!h.fetched)requestHistory(200,0);   // 切到没加载过的那条会话才拉首批
+  alignCursor().then(()=>pullLines());
+}
+async function send(){
+  const v=$('input').value.trim();if(!v)return;
+  $('input').value='';
+  appendMsg('me',v);
+  try{
+    const r=await fetch(RELAY+'/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:v,target:S.target})}).then(x=>x.json());
+    if(!r.ok)appendMsg('sys','发送失败：'+(r.error||''));
+  }catch(e){appendMsg('sys','发送失败：'+e.message)}
+}
+function setView(v){
+  document.body.classList.toggle('desk',v==='desk');
+  document.body.classList.toggle('space',v==='space');
+  $('tabChat').classList.toggle('on',v==='chat');
+  $('tabDesk').classList.toggle('on',v==='desk');
+  $('tabSpace').classList.toggle('on',v==='space');
+  if(v==='desk')$('deskFrame').src=DESK+'/';
+  if(v==='space')spaceOpenCats();
+}
+// ── 工作区（D48）：数据驱动注册表 + 白名单启动 ──
+const SPACE_CATS=[{id:'monitor',label:'监控'},{id:'data',label:'数据'},{id:'dev',label:'开发'},{id:'ops',label:'运维'},{id:'other',label:'其他'}];
+const SPACE_TOOLS=[];
+const spaceState={cat:null,launched:null};
+/** 注册工具入口：{category, id, label, desc, icon?, launch:{kind:'url',url} | {kind:'exe',exe,args?}} */
+function workspaceRegister(tool){
+  if(!tool||!tool.id||!tool.label||!tool.launch)return false;
+  if(SPACE_TOOLS.some(t=>t.id===tool.id))return false;
+  if(!SPACE_CATS.some(c=>c.id===tool.category))return false;
+  SPACE_TOOLS.push(tool);return true;
+}
+window.workspace={register:workspaceRegister,tools:function(){return SPACE_TOOLS.slice()},cats:function(){return SPACE_CATS.slice()}};
+// 本次范围：注册 1 个真实入口（分类「数据」→ 花费看板 → 工作台 9340）
+workspaceRegister({category:'data',id:'cost-board',label:'花费看板',icon:'¥',desc:'今天谁在烧钱、命中率多少（工作台花费区）',launch:{kind:'url',url:DESK+'/'}});
+// D49：首个 exe 类工具——验证「分类→子菜单→启动→二次确认→进程出现」
+workspaceRegister({category:'ops',id:'watt-toolkit',label:'网络加速（Watt Toolkit）',icon:'🌐',
+  desc:'启动 Steam++，用于 GitHub 加速；会弹 UAC，需要确认',
+  launch:{kind:'exe',exe:'C:\\Program Files\\Steam++\\Steam++.exe',args:[],watch:['Steam++','Steam++_Accelerator'],
+          confirm:'将启动 Steam++（需要 UAC 管理员权限），继续？'}});
+
+// ── D49：exe 工具的进程状态与启动结果 ───────────────────────────────
+const PROC_STATE={};
+function setToolErr(id,msg){
+  const el=document.querySelector('[data-err="'+id+'"]');
+  if(!el)return;
+  el.textContent=msg||'';
+  el.classList.toggle('on',Boolean(msg));
+}
+function queryProc(t){
+  if(!bridge||!t.launch||t.launch.kind!=='exe')return;
+  try{bridge.postMessage({type:'proc:query',names:t.launch.watch||[],toolId:t.id})}catch(e){}
+}
+function updateToolBtn(id){
+  const btn=document.querySelector('[data-launch="'+id+'"]');
+  if(!btn)return;
+  const st=PROC_STATE[id];
+  if(st&&st.running){
+    const pids=(st.procs||[]).map(p=>p.pid).join(', ');
+    btn.disabled=true;
+    btn.textContent='已在运行'+(pids?'（pid '+pids+'）':'');
+  }else{
+    btn.disabled=false;
+    btn.textContent='启动';
+  }
+}
+function onProcData(d){
+  PROC_STATE[d.toolId]=d;
+  updateToolBtn(d.toolId);
+}
+function onLaunchResult(d){
+  const id=d.toolId;
+  const btn=document.querySelector('[data-launch="'+id+'"]');
+  if(d.ok){
+    setToolErr(id,'');
+    PROC_STATE[id]={running:true,procs:d.procs||[]};
+    updateToolBtn(id);
+  }else{
+    setToolErr(id,d.error||'启动失败');
+    if(btn){btn.disabled=false;btn.textContent='启动'}
+  }
+}
+
+function spaceOpenCats(){
+  spaceState.cat=null;spaceState.launched=null;
+  $('spaceFrame').classList.remove('on');$('spaceFrame').src='about:blank';
+  $('spaceBody').classList.remove('hide');
+  $('spaceHead').innerHTML='<div class="crumb">工作区</div><span class="grow"></span><span class="crumb">'+SPACE_TOOLS.length+' 个工具</span>';
+  $('spaceBody').innerHTML=SPACE_CATS.map(c=>{
+    const n=SPACE_TOOLS.filter(t=>t.category===c.id).length;
+    return '<button class="catCard" data-cat="'+esc(c.id)+'"><span class="catName">'+esc(c.label)+'</span><span class="catNum">'+n+' 个工具</span></button>';
+  }).join('');
+  document.querySelectorAll('[data-cat]').forEach(b=>b.addEventListener('click',()=>spaceOpenCat(b.dataset.cat)));
+}
+function spaceOpenCat(id){
+  const c=SPACE_CATS.find(x=>x.id===id);if(!c)return;
+  spaceState.cat=id;spaceState.launched=null;
+  $('spaceFrame').classList.remove('on');$('spaceFrame').src='about:blank';
+  $('spaceBody').classList.remove('hide');
+  const list=SPACE_TOOLS.filter(t=>t.category===id);
+  $('spaceHead').innerHTML='<button class="btn" id="spaceBack">← 返回</button><div class="crumb">工作区 / '+esc(c.label)+'</div><span class="grow"></span><span class="crumb">'+list.length+' 个工具</span>';
+  $('spaceBody').innerHTML=list.length?list.map(t=>'<div class="toolRow">'+
+    '<span class="toolIcon">'+esc(t.icon||'▦')+'</span>'+
+    '<div class="toolMain"><div class="toolName">'+esc(t.label)+'</div><div class="toolDesc">'+esc(t.desc||'')+'</div>'+
+    '<div class="toolErr" data-err="'+esc(t.id)+'"></div></div>'+
+    '<button class="btn pri" data-launch="'+esc(t.id)+'">启动</button></div>').join(''):'<div class="empty">暂无工具</div>';
+  $('spaceBack').addEventListener('click',spaceOpenCats);
+  document.querySelectorAll('[data-launch]').forEach(b=>b.addEventListener('click',()=>spaceLaunch(b.dataset.launch)));
+  list.filter(t=>t.launch&&t.launch.kind==='exe').forEach(t=>{const b=document.querySelector('[data-launch="'+t.id+'"]');if(b){b.disabled=true;b.textContent='检查中…'}queryProc(t)});
+}
+function spaceLaunch(id){
+  const t=SPACE_TOOLS.find(x=>x.id===id);if(!t||!t.launch)return;
+  const L=t.launch;
+  if(L.kind==='url'){
+    let u;try{u=new URL(L.url,location.href)}catch(e){alert('地址不合法');return}
+    const local=(u.hostname==='127.0.0.1'||u.hostname==='localhost');
+    if(u.protocol!=='http:'||!local){alert('只允许本地 http 页面（127.0.0.1 / localhost）');return}
+    $('spaceFrame').src=u.href;$('spaceFrame').classList.add('on');
+    $('spaceBody').classList.add('hide');
+    spaceState.launched=t.id;
+    const c=SPACE_CATS.find(x=>x.id===t.category);
+    $('spaceHead').innerHTML='<button class="btn" id="spaceBack">← 返回</button><div class="crumb">工作区 / '+esc(c?c.label:t.category)+' / '+esc(t.label)+'</div>';
+    $('spaceBack').addEventListener('click',()=>spaceOpenCat(t.category));
+    return;
+  }
+  if(L.kind==='exe'){
+    const msg=L.confirm||('启动本地程序：'+String(L.exe||'').split(/[\\/]/).pop()+'？\n\n只有注册表里登记过的程序能被启动。');
+    if(!window.confirm(msg))return;
+    if(!bridge){setToolErr(t.id,'当前不是宿主壳环境，无法启动本地程序');return}
+    setToolErr(t.id,'');
+    const btn=document.querySelector('[data-launch="'+t.id+'"]');
+    if(btn){btn.disabled=true;btn.textContent='启动中…'}
+    try{bridge.postMessage({type:'launch',exe:L.exe,args:L.args||[],watch:L.watch||[],toolId:t.id})}
+    catch(e){setToolErr(t.id,'启动请求没发出去：'+e.message);if(btn){btn.disabled=false;btn.textContent='启动'}}
+    return;
+  }
+  alert('这个入口的启动方式不认识：'+L.kind);
+}
+
+// Ctrl+K
+const CMDS=[
+  {label:'切到 鲟鱼（QQ 侧）',run:()=>setTarget('xunyu')},
+  {label:'切到 DSH（我这边）',run:()=>setTarget('dsh')},
+  {label:'打开 工作台',run:()=>setView('desk')},
+  {label:'回到 聊天',run:()=>setView('chat')},
+  {label:'打开 会话检测（浏览器）',run:()=>window.open(DESK+'/#more')},
+  {label:'重新连 relay',run:()=>ping()}
+];
+function paletteList(q){
+  const ql=String(q||'').toLowerCase();
+  return CMDS.concat((S.agents||[]).map(a=>({label:(a.no?'工号'+a.no+' · ':'')+String(a.title||''),run:()=>{selectAgent(a.id);setView('chat')}})))
+    .filter(c=>!ql||c.label.toLowerCase().indexOf(ql)>=0).slice(0,30);
+}
+let pSel=0,pItems=[];
+function drawPalette(){
+  pItems=paletteList($('pquery').value);
+  if(pSel>=pItems.length)pSel=Math.max(0,pItems.length-1);
+  $('plist').innerHTML=pItems.map((c,i)=>'<div class="pitem'+(i===pSel?' on':'')+'" data-i="'+i+'"><span>'+esc(c.label)+'</span><span class="tiny">↵</span></div>').join('')||'<div class="pitem tiny">没有匹配项</div>';
+  document.querySelectorAll('[data-i]').forEach(el=>el.addEventListener('click',()=>{const c=pItems[+el.dataset.i];if(c){closePalette();c.run()}}));
+}
+function openPalette(){$('palette').classList.add('on');$('pquery').value='';pSel=0;drawPalette();$('pquery').focus()}
+function closePalette(){$('palette').classList.remove('on')}
+
+document.querySelectorAll('[data-t]').forEach(r=>r.addEventListener('click',()=>setTarget(r.dataset.t)));
+$('btnSend').addEventListener('click',send);
+$('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+$('tabChat').addEventListener('click',()=>setView('chat'));
+$('tabDesk').addEventListener('click',()=>setView('desk'));
+$('btnPalette').addEventListener('click',openPalette);
+$('pquery').addEventListener('input',()=>{pSel=0;drawPalette()});
+$('pquery').addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closePalette();return}
+  if(e.key==='ArrowDown'){pSel=Math.min(pItems.length-1,pSel+1);drawPalette();e.preventDefault()}
+  if(e.key==='ArrowUp'){pSel=Math.max(0,pSel-1);drawPalette();e.preventDefault()}
+  if(e.key==='Enter'){const c=pItems[pSel];if(c){closePalette();c.run()}}
+});
+$('palette').addEventListener('click',e=>{if(e.target===$('palette'))closePalette()});
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openPalette()}
+  if(e.key==='Escape'){
+    closePalette();
+    // D48：在工作区子菜单/工具页里，Esc 先回上一级
+    if(document.body.classList.contains('space')&&spaceState.cat){spaceOpenCats();return}
+    if(sidebarOpen)toggleSidebar();   // D47：Esc 也能收起左栏
+  }
+});
+$('btnRight').addEventListener('click',()=>{
+  const s=$('shell');
+  if(window.innerWidth<=900){$('right').classList.toggle('open');return}
+  s.classList.toggle('noright');
+});
+$('btnLeft').addEventListener('click',()=>toggleSidebar());
+$('leftToggle').addEventListener('click',()=>toggleSidebar());
+$('btnSettings').addEventListener('click',()=>{
+  $('info').innerHTML='<div class="card"><h4>设置</h4>'+
+    '<div class="kv"><span>relay</span><b>'+esc(RELAY)+'</b></div>'+
+    '<div class="kv"><span>工作台</span><b>'+esc(DESK)+'</b></div>'+
+    '<div class="kv"><span>relay 状态</span><b>'+(S.online?'在线':'断开')+'</b></div>'+
+    '<div class="tiny" style="margin-top:6px">窗口尺寸/位置自动记住；<b>Ctrl+K</b> 命令面板；窄屏用顶部 ☰ / 信息 抽屉。</div></div>';
+  if(window.innerWidth<=900)$('right').classList.add('open');
+});
+
+// ── 启动 ────────────────────────────────────────────────────────────────
+drawStream();drawStatus();
+histBar();
+requestHistory(200,0);
+$('loadMore').addEventListener('click',()=>{
+  const h=HIST[S.target]||HIST.xunyu;
+  if(h.loading||(h.total>0&&h.loaded>=h.total))return;
+  requestHistory(100,h.loaded);   // offset = 已经加载了多少条，壳从尾部往前再取 100
+});
+// D47：左栏默认收起（首次安装），上次展开过才展开；收起时不发列表请求
+try{sidebarOpen=localStorage.getItem('sidebarOpen')==='1'}catch(e){sidebarOpen=false}
+applySidebar();
+if(sidebarOpen)loadList();
+ping();
+setInterval(ping,3000);
+setInterval(pullDesk,5000);   // 函数内部有门控：收起且没选工号时直接 return
+// 先对齐游标再开始增量：否则 cursor=0 会把 relay 缓存全拉一遍，和历史重复
+alignCursor().then(()=>{
+  pullLines();
+  setInterval(pullLines,1200);
+});
+</script>
+</body>
+</html>

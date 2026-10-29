@@ -1,0 +1,19 @@
+{
+  "_comment": "鲟鱼工作组 · 端口登记表。改动这里之前先确认端口空闲；所有服务都只监听 127.0.0.1。",
+  "ports": {
+    "mod": { "port": 9333, "owner": "游戏进程 (Lilith.exe)", "purpose": "身体驱动：/say /anim /chatpanel /timer /state /ping" },
+    "relay": { "port": 9334, "owner": "avatar/relay.mjs", "purpose": "Avatar 窗口 ↔ 桥接 ↔ 本体；/chat /lines /health /pending /approve /window" },
+    "bodyService": { "port": 9335, "owner": "avatar/body-service.mjs（守护看护）", "purpose": "身体抽象层：适配器 lilith/noop + 能力表 + 单飞队列；/health /capabilities /state /say /anim /emotion /dialogue /chatpanel /timer" },
+    "bridge": { "port": 3100, "owner": "qq-bridge", "purpose": "QQ ↔ DSH；/api/dsh/*、审批、喊话" },
+    "snowlumaWs": { "port": 3001, "owner": "SnowLuma", "purpose": "OneBot WebSocket（QQ 网关）" },
+    "snowlumaWeb": { "port": 5099, "owner": "SnowLuma", "purpose": "QQ 登录 WebUI" },
+    "dshWeb": { "port": 62449, "owner": "DSH", "purpose": "DeepSeek Harness Web（每次重启可能变，桥接会自动同步）" }
+  },
+  "notes": [
+    "9333 由 http.sys 代理到游戏进程，netstat 里 PID 显示为 4（System），不是错误。",
+    "9334 与 9335 相邻：中继和身体服务各占一个，避免复用同一个进程。",
+    "9335 只在中继之外多一层：上层（中继/窗口/本体）动身体都走它，将来换身体只换适配器，上层不动。",
+    "本体的人格与记忆不在 avatar 里，在 <Xunyu根>\\（avatar 只放功能模块）。",
+    "DSH Web 端口不固定；scripts/sync-dsh-port.mjs 会在桥接启动前对齐 config.json。"
+  ]
+}
