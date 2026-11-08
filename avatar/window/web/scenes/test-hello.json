@@ -1,0 +1,19 @@
+{
+  "id": "test-hello",
+  "name": "测试：hello 外挂类型",
+  "cols": 12,
+  "layout": "focus",
+  "_note": "把 config.json 的 scene 改成 test-hello 就能看到 hello 面板；它只靠注册表 + 这份 json，没有改任何 JS。",
+  "panels": [
+    {
+      "id": "hello",
+      "type": "hello",
+      "col": 0,
+      "row": 0,
+      "w": 12,
+      "h": 1,
+      "title": "打招呼",
+      "text": "hello 渲染器还在：切到本场景就能看到，默认场景不出现。"
+    }
+  ]
+}

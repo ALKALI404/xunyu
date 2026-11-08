@@ -1,0 +1,36 @@
+{
+  "id": "default",
+  "name": "默认",
+  "cols": 12,
+  "layout": "focus",
+  "panels": [
+    {
+      "id": "chat",
+      "type": "chat",
+      "col": 0,
+      "row": 0,
+      "w": 12,
+      "h": 1,
+      "title": "聊天"
+    },
+    {
+      "id": "desk",
+      "type": "desk",
+      "col": 0,
+      "row": 2,
+      "w": 12,
+      "h": 1,
+      "title": "入海口"
+    },
+    {
+      "id": "space",
+      "type": "space",
+      "col": 0,
+      "row": 3,
+      "w": 12,
+      "h": 1,
+      "title": "工具区"
+    }
+  ],
+  "_note": "2026-10-31 00:40 主人：企微是独立项目（E:\\DSH-WeCom\\window 独立 exe），从本窗口移除 wecom 面板。原四个视图现为 chat/desk/space。"
+}

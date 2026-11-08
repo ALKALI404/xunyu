@@ -1,0 +1,1240 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>鲟鱼</title>
+<link rel="stylesheet" href="styles/tokens.css">
+<script>
+/* 玻璃开关：URL ?glass=0|1 优先，其次 localStorage.glass，缺省 0（纯色、可读优先） */
+(function () {
+  try {
+    var q = new URLSearchParams(location.search).get('glass');
+    var v = (q === '0' || q === '1') ? q : (localStorage.getItem('glass') || '0');
+    if (q === '0' || q === '1') localStorage.setItem('glass', q);
+    document.documentElement.setAttribute('data-glass', (v === '1' ? '1' : '0'));
+  } catch (e) { document.documentElement.setAttribute('data-glass', '0'); }
+})();
+</script>
+<style>
+  /* AV-006 液态玻璃（Liquid Glass）。规矩：这里只许 var(--xxx)，颜色/圆角/模糊全在 styles/tokens.css。 */
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  /* 背景：四层柔和渐变（暖白 → 浅灰 → 极淡蓝 + 两团光），不许纯色大块 */
+  body{
+    color:var(--fg);
+    font:13px/1.5 "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",sans-serif;
+    overflow:hidden;
+    /* L0：暖灰渐变打底 + 右下角一团极淡冷光（**刻意不放光斑在顶栏底下**：
+       光斑会把背景洗成近白，L1 的 backdrop-filter 就又"糊在白上"，开关两版看不出差别） */
+    background:
+      radial-gradient(720px 460px at 78% 106%, var(--l0-spot-cool), transparent 62%),
+      linear-gradient(158deg, var(--l0-a) 0%, var(--l0-b) 100%);
+    background-attachment:fixed;
+  }
+  button{font:inherit}
+  .app{height:100%;display:flex;flex-direction:column}
+  /* L1 顶栏 / 状态条（AV-008）：0.72 白 + blur(24) sat(160%) + 1px 白边 —— 全页固定 1 层模糊 */
+  header{
+    display:flex;align-items:center;gap:10px;padding:8px 14px;flex-wrap:nowrap;
+    background:var(--l1-bg);
+    -webkit-backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+    backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+    border-bottom:1px solid var(--l1-border);
+    /* 玻璃态给一条软阴影：0.72 白压在极淡 L0 上只差 2–3 级，靠这道阴影才看得出"外壳浮在正文之上"；
+       glass=0 时 --glass-shadow-sm 归零 ⇒ 纯色态干净无阴影（这正好也是开/关的画面差异） */
+    box-shadow:inset 0 1px 0 var(--l1-border), var(--glass-shadow-sm);
+    flex:none;
+  }
+  .brand{font-weight:700;letter-spacing:.5px;white-space:nowrap;flex:none}
+  header .tab,header .iconbtn{white-space:nowrap;flex:none}
+  .dot{width:8px;height:8px;border-radius:var(--radius-pill);background:var(--muted);flex:none}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
+  .stat{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .tabs{display:flex;gap:4px;margin-left:12px;flex:none}
+  .tab{
+    padding:3px 12px;border:1px solid transparent;border-radius:var(--radius-pill);
+    background:transparent;color:var(--muted);cursor:pointer;
+    transition:background-color var(--dur-glass) var(--ease-glass),
+               color var(--dur-glass) var(--ease-glass),
+               border-color var(--dur-glass) var(--ease-glass),
+               transform var(--dur-glass) var(--ease-glass),
+               box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .tab:hover{color:var(--fg);background:var(--glass-inner);transform:translateY(var(--lift))}
+  .tab.on{
+    background:var(--glass-inner-strong);
+    border-color:var(--glass-border);
+    box-shadow:inset 0 1px 0 var(--glass-hi), var(--glass-shadow-sm);
+    color:var(--fg);
+  }
+  .grow{flex:1}
+  .iconbtn{
+    border:1px solid var(--glass-border);background:var(--glass-inner);color:var(--muted);
+    border-radius:var(--radius-pill);padding:3px 11px;cursor:pointer;
+    transition:background-color var(--dur-glass) var(--ease-glass),
+               color var(--dur-glass) var(--ease-glass),
+               border-color var(--dur-glass) var(--ease-glass),
+               transform var(--dur-glass) var(--ease-glass),
+               box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .iconbtn:hover{
+    color:var(--fg);border-color:var(--glass-border);background:var(--glass-inner-strong);
+    transform:translateY(var(--lift));box-shadow:var(--glass-shadow-sm);
+  }
+  /* ── 面板宿主：留出 8px 让玻璃"浮"起来（布局仍是 12 栅格，不动） ── */
+  .panelHost{
+    flex:1;min-height:0;display:grid;
+    grid-template-columns:repeat(var(--cols,12),minmax(0,1fr));
+    grid-auto-rows:minmax(0,1fr);
+    gap:8px;padding:8px;
+  }
+  /* L2 正文卡（= 面板）：纯白 + 1px 边 + 阴影。
+     ⚠️ 这里**绝对不许挂 backdrop-filter / transform / filter**：
+     面板是 #shell（含 #left 抽屉、aside.right 浮层）的祖先，一旦它成为"包含块 + 层叠上下文"，
+     固定定位的抽屉会被困在面板里、画到遮罩（z-index 44）下面 ⇒ 点哪都命中遮罩、一点就关。
+     2026-10-30 主人实测踩到的就是这个（r3 加过，已撤）。L1 的磨砂只挂在 header / #left / aside.right 自己身上。 */
+  .panel{
+    display:none;min-width:0;min-height:0;overflow:hidden;position:relative;
+    background:var(--l2-bg);
+    border:1px solid var(--l2-line);
+    border-radius:var(--radius-panel);
+    box-shadow:var(--l2-shadow);
+    transition:box-shadow var(--dur-glass) var(--ease-glass), border-color var(--dur-glass) var(--ease-glass);
+  }
+  /* 伪元素只在平铺模式画一圈内高光（模糊已回到 .panel 本体） */
+  .panel::before{
+    content:"";position:absolute;inset:0;pointer-events:none;z-index:-1;
+    border-radius:inherit;
+    box-shadow:inset 0 1px 0 var(--glass-hi);
+  }
+  .panel.focus{display:flex;flex-direction:column}
+  .panelHost.tile .panel{border-left:1px solid var(--glass-border)}
+  .panel-head{
+    display:none;align-items:center;gap:8px;padding:6px 12px;
+    background:var(--glass-inner);border-bottom:1px solid var(--glass-inner-border);
+    font-size:12px;color:var(--muted);flex:none;
+  }
+  .panelHost.tile .panel-head{display:flex}
+  .panel-title{font-weight:600;color:var(--fg)}
+  .panel-type{border:1px solid var(--glass-line);border-radius:var(--radius-pill);padding:0 8px;font-size:11px;background:var(--glass-inner)}
+  .panel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:transparent}
+  .panel-body>.shell{display:grid;flex:1;min-height:0}
+  .panel-body>.deskframe{display:block;flex:1;width:100%}
+  .panel-body>.wecomframe{display:block;flex:1;width:100%}
+  .panel-body>.spaceview{display:flex;flex:1;min-height:0}
+  .panel-unknown{padding:12px 14px;color:var(--muted);font-size:12px}
+  .helloBody{padding:18px 16px;display:flex;flex-direction:column;gap:6px}
+  .helloTitle{font-weight:600;color:var(--fg)}
+  .helloLine{color:var(--muted);font-size:12px;line-height:1.6}
+  /* ── 面板内部：只做半透，不再加 blur（滚动区里加 blur 会卡） ── */
+  /* ── 布局（21:12）：默认只有聊天；左右两栏退成抽屉 / 浮层 ── */
+  .shell{flex:1;display:grid;grid-template-columns:1fr;min-height:0;padding:0;gap:0;overflow:hidden;background:transparent}
+  body[data-left="pinned"] .shell{grid-template-columns:270px 1fr;padding:8px;gap:8px}
+  aside{background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-ctl);overflow:auto;min-width:0}
+  /* 左栏 = 抽屉：L1 磨砂外壳（0.72 白 + blur 24/160），底下的聊天正文被糊掉但不透字 */
+  #left{position:fixed;top:53px;bottom:0;left:0;width:var(--drawer-w);z-index:var(--z-drawer);
+        display:flex;flex-direction:column;padding:0;
+        visibility:hidden;transform:translateX(-100%);
+        transition:transform var(--dur-glass) var(--ease-glass),visibility var(--dur-glass);
+        background:var(--l1-bg);
+        -webkit-backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+        backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+        border:0;border-right:1px solid var(--l1-border);
+        border-radius:0 var(--radius-panel) var(--radius-panel) 0;box-shadow:var(--shadow-drawer)}
+  #left.open{visibility:visible;transform:none}
+  body[data-left="pinned"] #left{position:static;visibility:visible;transform:none;width:270px;
+        background:var(--l2-bg);
+        border:1px solid var(--l2-line);border-radius:var(--radius-ctl);box-shadow:none}
+  #left .leftBody{flex:1;overflow:auto;min-width:0}
+  .drawerHead{display:flex;align-items:center;gap:6px;padding:8px 10px;flex:none;
+        border-bottom:1px solid var(--glass-line);background:var(--glass-pane);position:sticky;top:0;z-index:1}
+  .drawerTitle{font-weight:600;font-size:12px;color:var(--fg)}
+  .pinBtn{border:1px solid var(--glass-line);background:var(--panel);color:var(--dim);
+        border-radius:var(--radius-pill);padding:1px 9px;font-size:12px;cursor:pointer;line-height:18px}
+  .pinBtn:hover{background:var(--panel2);color:var(--fg)}
+  .pinBtn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+  .skel{padding:12px 16px;color:var(--weak);font-size:12px}
+  /* 右栏 = 浮层卡片：L1 磨砂外壳（比抽屉实一点：0.86，因为它压在正文上更小） */
+  aside.right{position:fixed;right:16px;top:64px;width:340px;max-height:min(72vh,560px);
+        z-index:calc(var(--z-drawer) + 1);display:flex;flex-direction:column;overflow:auto;
+        background:var(--l1-bg);
+        -webkit-backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+        backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+        border:1px solid var(--l1-border);
+        border-radius:var(--radius-panel);box-shadow:var(--shadow-pop);
+        opacity:0;visibility:hidden;transform:translateX(14px);
+        transition:opacity var(--dur-glass) var(--ease-glass),transform var(--dur-glass) var(--ease-glass),visibility var(--dur-glass)}
+  body[data-right="open"] aside.right{opacity:1;visibility:visible;transform:none}
+  /* 遮罩只盖"抽屉以外"：左边界从抽屉右缘开始（--drawer-w）。
+     这样点抽屉内部永远命中的是抽屉/会话项本身，只有点右边压暗区才收起。
+     z-index 也低一档（44 < 抽屉 45），抽屉永远在遮罩之上。 */
+  #scrim{position:fixed;top:0;right:0;bottom:0;left:var(--drawer-w);z-index:calc(var(--z-drawer) - 1);background:var(--scrim);display:none}
+  body[data-scrim="1"] #scrim{display:block}
+  .sec{color:var(--muted);font-size:11px;padding:10px 12px 4px}
+  .row{
+    display:flex;gap:8px;align-items:center;padding:8px 12px;cursor:pointer;
+    border-left:2px solid transparent;border-radius:var(--radius-ctl);
+    transition:background-color var(--dur-glass) var(--ease-glass), transform var(--dur-glass) var(--ease-glass), box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .row:hover{background:var(--glass-inner-strong);transform:translateY(var(--lift))}
+  .row.on{background:var(--glass-inner-strong);border-left-color:var(--accent);box-shadow:inset 0 1px 0 var(--glass-hi)}
+  .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .tm{color:var(--muted);font-size:11px}
+  .badge{background:var(--bad);color:var(--on-accent);font-size:10px;border-radius:var(--radius-pill);padding:0 6px;min-width:16px;text-align:center}
+  /* L2 正文卡：消息区 + 输入区保持纯白（可读性靠它），不再内嵌收窄 */
+  main.chat{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;
+    background:var(--l2-bg);border:0;border-radius:0;box-shadow:none}
+  /* 聊天内容：max-width 900 居中；窄于 900 自适应铺满（AV-007 §1.4） */
+  .histbar,.stream,.composer{width:100%;max-width:900px;margin-left:auto;margin-right:auto}
+  .stream{flex:1;overflow:auto;min-height:0;padding:14px 18px 8px}
+  .stream.panning{cursor:grabbing;user-select:none}
+  .msg{
+    max-width:76%;margin:0 0 10px;padding:9px 13px;border-radius:var(--radius-bubble);
+    white-space:pre-wrap;word-break:break-word;line-height:1.55;
+    transition:transform var(--dur-glass) var(--ease-glass), box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .msg.her{
+      /* 2026-11-07 主人要求：浅灰 → 白渐变，与主人蓝渐变同角度、反方向 */
+      background:linear-gradient(160deg,#EDF2F7 0%,#FFFFFF 70%);
+      border:1px solid var(--l2-line);
+      border-bottom-left-radius:6px;box-shadow:var(--l2-shadow);
+    }
+  .msg.me{
+    background:linear-gradient(160deg, var(--accent2), var(--accent));
+    color:var(--on-accent);margin-left:auto;border-bottom-right-radius:6px;
+    box-shadow:var(--glass-shadow-sm);
+  }
+  .msgTime{display:block;font-size:10px;color:var(--muted);margin-bottom:2px;font-variant-numeric:tabular-nums;text-align:right}
+  .msg.me .msgTime{color:var(--glass-hi)}
+  .daysep{text-align:center;color:var(--muted);font-size:11px;margin:14px 0 8px;letter-spacing:.5px}
+  .msg.sys{background:transparent;color:var(--muted);font-size:12px;text-align:center;max-width:100%;margin:6px 0;box-shadow:none;border:0}
+  .histbar{
+    display:flex;align-items:center;gap:8px;padding:8px 16px;flex:none;
+    border-bottom:1px solid var(--l2-line);background:var(--l1-bg);
+  }
+  .histbar .info{color:var(--muted);font-size:12px;margin-left:auto}
+  .btn{
+    border:1px solid var(--glass-border);background:var(--glass-inner-strong);color:var(--fg);
+    border-radius:var(--radius-pill);padding:3px 12px;cursor:pointer;
+    transition:background-color var(--dur-glass) var(--ease-glass), transform var(--dur-glass) var(--ease-glass), box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .btn:hover{transform:translateY(var(--lift));box-shadow:var(--glass-shadow-sm)}
+  .composer{flex:none;min-height:44px;padding:10px 14px 14px;display:flex;gap:8px}
+  .composer textarea{
+    flex:1;resize:none;height:74px;padding:9px 11px;font:inherit;
+    background:var(--l2-bg);color:var(--fg);outline:none;
+    border:1px solid var(--l2-line);border-radius:var(--radius-ctl);
+    box-shadow:var(--l2-shadow);
+    transition:border-color var(--dur-glass) var(--ease-glass), box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .composer textarea:focus{border-color:var(--accent);box-shadow:var(--l2-shadow), 0 0 0 3px var(--accent-soft)}
+  .send{
+    width:78px;height:38px;align-self:flex-end;border:0;border-radius:var(--radius-pill);cursor:pointer;font-weight:600;
+    background:linear-gradient(160deg, var(--accent2), var(--accent));color:var(--on-accent);
+    box-shadow:var(--glass-shadow-sm);
+    transition:filter var(--dur-glass) var(--ease-glass), transform var(--dur-glass) var(--ease-glass);
+  }
+  .send:hover{filter:brightness(1.06);transform:translateY(var(--lift))}
+  /* L2 卡片：纯白 + 1px 边 + 0 8px 24px 阴影（三样都在 tokens.css 的 --l2-*） */
+  .card{
+    margin:10px 12px;padding:10px 12px;background:var(--l2-bg);
+    border:1px solid var(--l2-line);border-radius:var(--radius-ctl);
+    box-shadow:var(--l2-shadow);
+  }
+  .card h4{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:600}
+  .kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0}
+  .kv b{font-weight:600}
+  .tiny{color:var(--muted);font-size:11px}
+  .setRow{display:flex;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--glass-line)}
+  .setRow .setText{flex:1;min-width:0}
+  .setLbl{font-size:12px;font-weight:600}
+  .tag{display:inline-block;font-size:11px;border:1px solid var(--glass-line);border-radius:var(--radius-pill);padding:0 7px;color:var(--muted);margin-right:4px;background:var(--glass-inner)}
+  .tag.ok{color:var(--ok);border-color:var(--ok-line)}
+  .tag.warn{color:var(--warn);border-color:var(--warn-line)}
+  .tag.bad{color:var(--bad);border-color:var(--bad-line)}
+  /* 工作台页 */
+  .deskframe{flex:1;border:0;width:100%;background:var(--bg);display:none;border-radius:var(--radius-ctl)}
+  /* ST-133「入海口」：段控 + 双 iframe（两个都活着，同一时刻只有一个 display:block） */
+  .estuary{flex:1;display:none;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--bg)}
+  .panel-body>.estuary{display:flex;flex:1;width:100%;min-height:0}
+  .segbar{display:flex;gap:6px;align-items:center;padding:6px 10px;flex:none;
+          background:var(--l2-bg);border-bottom:1px solid var(--l2-line)}
+  .seg{border:1px solid var(--line);background:var(--panel);color:var(--dim);border-radius:var(--radius-pill);
+       padding:3px 14px;font:inherit;font-size:13px;cursor:pointer;line-height:18px}
+  .seg:hover{background:var(--panel2);color:var(--fg)}
+  .seg.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+  .segHint{color:var(--weak);font-size:12px;margin-left:auto}
+  /* ST-133 返工（01 13:07 裁定：§0.5 滚动优先）：两个 iframe 都 display:block、都保留布局，
+     只是不可见的那个 visibility:hidden + pointer-events:none 叠在下面。
+     为什么不用 display:none：它会销毁 iframe 布局，Chromium 把滚动位置清零（实测 900→0，最小复现 777→0）。
+     代价：DOM 里 display:block 的不止一个 —— 断言口径改成"同一时刻可见的只有一个"（visibleCount=1）。 */
+  .estFrames{flex:1;min-height:0;position:relative;display:block;overflow:hidden}
+  .estFrame{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;
+            background:var(--bg);visibility:hidden;pointer-events:none;z-index:1}
+  .estFrame.on{visibility:visible;pointer-events:auto;z-index:2}
+  /* WC-008：企微聊天组件（独立页面 wecom.html，装在这个 iframe 里） */
+  .wecomframe{flex:1;border:0;width:100%;display:none;background:var(--l2-bg);border-radius:var(--radius-ctl)}
+  /* 工具区（D48）：分类 → 子菜单 → 启动 */
+  .spaceview{flex:1;display:none;flex-direction:column;min-height:0}
+  .spaceHead{
+    display:flex;align-items:center;gap:12px;padding:8px 16px;flex:none;
+    border-bottom:1px solid var(--glass-inner-border);background:var(--glass-inner);
+  }
+  .crumb{color:var(--dim);font-size:12px}
+  .spaceBody{flex:1;overflow:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-content:start}
+  .spaceBody.hide{display:none}
+  .catCard{
+    display:flex;flex-direction:column;gap:8px;padding:16px;cursor:pointer;text-align:left;font:inherit;color:var(--fg);
+    background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-panel);
+    box-shadow:var(--l2-shadow);
+    transition:background-color var(--dur-glass) var(--ease-glass), transform var(--dur-glass) var(--ease-glass), box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .catCard:hover{transform:translateY(var(--lift));box-shadow:var(--glass-shadow)}
+  .catName{font-size:16px;font-weight:600}
+  .catNum{color:var(--dim);font-size:12px}
+  .toolRow{
+    grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:12px 16px;
+    background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-ctl);
+    box-shadow:var(--l2-shadow);
+  }
+  .toolIcon{font-size:18px;width:28px;text-align:center}
+  .toolMain{flex:1}
+  .toolName{font-weight:600}
+  .toolDesc{color:var(--dim);font-size:12px}
+  .spaceFrame{flex:1;border:0;width:100%;display:none;background:var(--panel);border-radius:var(--radius-ctl)}
+  .spaceFrame.on{display:block}
+  .viewErr{
+    display:none;padding:8px 16px;background:var(--bad-soft);color:var(--bad);
+    border-bottom:1px solid var(--glass-inner-border);font-size:12px;
+  }
+  .viewErr.on{display:block}
+  .toolErr{color:var(--bad);font-size:12px;margin-top:4px;display:none}
+  .toolErr.on{display:block}
+  /* 命令面板：模态浮层（不做 blur —— 它和抽屉/浮层可能同时在场，再挂一层就是 4 层）+ 大阴影压住背景 */
+  .palette{position:fixed;inset:0;background:var(--scrim);display:none;align-items:flex-start;justify-content:center;z-index:50}
+  .palette.on{display:flex}
+  .pbox{
+    margin-top:12vh;width:min(560px,86vw);overflow:hidden;
+    background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-panel);
+    box-shadow:var(--shadow-pop);
+  }
+  .pbox input{width:100%;border:0;border-bottom:1px solid var(--glass-inner-border);padding:13px 15px;font:inherit;outline:none;background:transparent;color:var(--fg)}
+  .plist{max-height:44vh;overflow:auto}
+  .pitem{padding:9px 15px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;transition:background-color var(--dur-glass) var(--ease-glass)}
+  .pitem.on,.pitem:hover{background:var(--glass-inner-strong)}
+  /* 低配模式：prefers-reduced-transparency 或手动开关（glass=0）⇒ L1 外壳全部退回纯色白 + 无 blur，
+     L2 本来就是纯白，不动 —— 文字对比度只升不降（任务书 §1.3） */
+  @media (prefers-reduced-transparency: reduce){
+    header,#left,aside.right,.panel,.pbox{
+      background:var(--panel);
+      -webkit-backdrop-filter:none;backdrop-filter:none;
+    }
+  }
+  html[data-glass="0"] header,
+  html[data-glass="0"] #left,
+  html[data-glass="0"] aside.right,
+  html[data-glass="0"] .panel,
+  html[data-glass="0"] .pbox{
+    -webkit-backdrop-filter:none;backdrop-filter:none;
+  }
+  html[data-glass="0"] header{box-shadow:none}
+  body.no-glass header,
+  body.no-glass #left,
+  body.no-glass aside.right,
+  body.no-glass .panel,
+  body.no-glass .pbox{
+    background:var(--panel);
+    -webkit-backdrop-filter:none;backdrop-filter:none;
+  }
+  body.no-glass{background:linear-gradient(158deg, var(--l0-a) 0%, var(--l0-b) 100%)}
+  /* 窄屏 */
+  /* 窄屏兜底：.panel 已不挂 blur（AV-008 起模糊只在 L1 外壳），这条留着当保险，
+     防以后有人给面板加回 backdrop-filter 把抽屉钉进面板（AV-006 踩过的坑②） */
+  @media(max-width:720px){
+    /* 窄屏抽屉按比例收窄；@media 里改同一个 --drawer-w，遮罩左边界自动跟着走。
+       AV-009 返工：原来写 min(300px,86vw) —— 86vw 在窄窗里数值很大（700 窗口 = 602），
+       人一看就觉得"抽屉要铺满"。改成 min(280px,60vw)：任何宽度下抽屉 ≤280px，右侧一定露得出聊天区。 */
+    :root{--drawer-w:min(280px,60vw)}
+    .panel{-webkit-backdrop-filter:none;backdrop-filter:none}
+    aside.right{right:8px;width:min(320px,90vw)}
+    .narrowonly{display:inline-block!important}
+  }
+  .narrowonly{display:none}
+  /* ── ST-133 宽屏自适应 ──────────────────────────────────────────────
+      <1000：单列（原样）｜1000–1400：左导航 220 常驻 + 消息列 ≤900｜>1400：再加右信息栏 280 */
+  @media (min-width:1000px){
+    .shell{grid-template-columns:220px minmax(0,1fr);gap:8px;padding:8px}
+    body[data-left="pinned"] .shell{grid-template-columns:220px minmax(0,1fr)}
+    #left,body[data-left="pinned"] #left{position:static;visibility:visible;transform:none;width:auto;height:auto;min-height:0;max-height:none;
+          background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-ctl);box-shadow:none}
+    #closeLeft,#pinLeft{display:none}
+    #scrim{display:none!important}
+    .histbar,.stream,.composer{max-width:900px}
+  }
+  @media (min-width:1400px){
+    .shell,body[data-left="pinned"] .shell{grid-template-columns:220px minmax(0,900px) 280px;justify-content:center}
+    aside.right{position:static;width:auto;max-height:none;opacity:1;visibility:visible;transform:none;
+          background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-ctl);box-shadow:none}
+    #btnRight{display:none}
+    /* 右栏在宽屏是「信息栏」：标题/会话卡让位给三张信息卡 */
+    aside.right .drawerHead{display:none}
+    aside.right #info{display:none}
+    aside.right .railCards{display:flex}
+  }
+  /* ST-133：左导航常驻时，「≡ 会话」这个抽屉开关没有意义 —— 藏掉，别留死按钮 */
+  @media (min-width:1000px){ #btnLeft{display:none} }
+  /* ST-133 信息栏卡片（窄屏不插：display:none 走默认） */
+  .railCards{display:none;flex-direction:column;flex:1;min-height:0;overflow:auto}
+  .railCards .card{margin:8px 10px}
+  .railBody{font-size:12px;color:var(--fg)}
+  .railRow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0}
+  .railRow b{font-weight:600;font-variant-numeric:tabular-nums}
+  .railDot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:var(--line);vertical-align:1px}
+  .railDot.ok{background:var(--ok)}
+  .railDot.bad{background:var(--bad)}
+  .railNote{color:var(--muted);font-size:11px;margin-top:6px;line-height:16px}
+
+    /* her-dark-gradient：① 主路径 = 跟随系统深墨（本窗口的深墨走 prefers-color-scheme）
+          ② 同时留 .dark / data-theme 两个类选择器，手动切主题时也能生效 */
+    @media (prefers-color-scheme: dark){
+      .msg.her{background:linear-gradient(160deg,#222C36 0%,#1B232C 70%)}
+    }
+    body.dark .msg.her, html[data-theme="dark"] .msg.her{
+      background:linear-gradient(160deg,#222C36 0%,#1B232C 70%);
+    }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <span class="dot" id="dot"></span>
+    <span class="brand">鲟鱼</span>
+    <span class="stat" id="stat">连接中…</span>
+    <nav class="tabs" id="tabs"></nav>
+    <span class="grow"></span>
+    <button class="iconbtn" id="btnLeft" title="会话 / 工号列表（Esc 或点遮罩收起）">≡ 会话</button>
+    <button class="iconbtn" id="btnRight">信息</button>
+    <button class="iconbtn" id="btnSettings">设置</button>
+  </header>
+  <div id="viewErr" class="viewErr"></div>
+  <!-- AV-005：面板宿主。原来的 #shell / #deskFrame / #spaceView 由各自的渲染器搬进面板里 -->
+  <div class="panelHost" id="panelHost"></div>
+
+  <div class="shell" id="shell">
+    <aside id="left" class="rail">
+      <div class="drawerHead">
+        <span class="drawerTitle">会话</span>
+        <span class="grow"></span>
+        <button class="pinBtn" id="pinLeft" title="固定为常驻栏（记住选择）">📌</button>
+        <button class="pinBtn" id="closeLeft" title="收起（Esc）">×</button>
+      </div>
+      <div class="leftBody" id="leftBody">
+        <div class="sec">会话</div>
+        <div class="row on" data-t="xunyu"><span class="dot on"></span><span class="nm">鲟鱼（QQ 侧）</span><span class="tm">↔</span></div>
+        <div class="row" data-t="dsh"><span class="dot on"></span><span class="nm">DSH（我这边）</span><span class="tm">↔</span></div>
+        <div class="sec">工号 / 对象（只读）</div>
+        <div id="agents"><div class="skel">加载中…</div></div>
+      </div>
+    </aside>
+
+    <main class="chat">
+      <div class="histbar" id="histbar">
+        <button class="btn" id="loadMore">加载更早的消息（+100）</button>
+        <span class="info" id="histInfo">已加载 — / 共 —</span>
+      </div>
+      <div class="stream" id="stream"></div>
+      <div class="composer">
+        <textarea id="input" placeholder="打字回车发给我（Shift+Enter 换行）"></textarea>
+        <button class="send" id="btnSend">发送</button>
+      </div>
+    </main>
+
+    <aside class="right" id="right">
+      <div class="drawerHead">
+        <span class="drawerTitle" id="rightTitle">这个会话</span>
+        <span class="grow"></span>
+        <button class="pinBtn" id="closeRight" title="关闭（Esc）">×</button>
+      </div>
+      <!-- ST-133 宽屏信息栏（≥1400 才显示）：今日待办 / 学习进度 / 连接状态。读不到就写「暂无数据」，不留空框。 -->
+      <div class="railCards" id="railCards">
+        <div class="card" data-rail="todo"><h4>今日待办</h4><div class="railBody" id="railTodo"><div class="tiny">暂无数据</div></div></div>
+        <div class="card" data-rail="study"><h4>学习进度</h4><div class="railBody" id="railStudy"><div class="tiny">暂无数据</div></div></div>
+        <div class="card" data-rail="conn"><h4>连接状态</h4><div class="railBody" id="railConn"><div class="tiny">暂无数据</div></div></div>
+      </div>
+      <div id="info"><div class="card"><div class="tiny">点「≡ 会话」里的工号查看</div></div></div>
+    </aside>
+  </div>
+
+  <!-- ST-133：「入海口」页签 = 工作台 ⇄ 学习区。两个 iframe 都活着，只显示一个（display 切换，不卸载）。 -->
+  <div class="estuary" id="estuary">
+    <div class="segbar">
+      <button class="seg on" id="segDesk" data-est="desk">工作台</button>
+      <button class="seg" id="segStudy" data-est="study">学习区</button>
+      <span class="segHint" id="segHint"></span>
+    </div>
+    <div class="estFrames" id="estFrames">
+      <iframe class="estFrame" id="deskFrame" src="about:blank" title="工作台"></iframe>
+      <iframe class="estFrame" id="studyFrame" src="about:blank" title="学习区"></iframe>
+    </div>
+  </div>
+  <!-- 2026-10-31 00:40 主人：企微是独立项目（E:\DSH-WeCom\window 独立 exe），不再挂在本窗口。
+       原 <iframe id="wecomFrame"> 已移除；渲染器 R.wecom 保留但无宿主面板，不会渲染。 -->
+
+  <div class="spaceview" id="spaceView">
+    <div class="spaceHead" id="spaceHead"></div>
+    <div class="spaceBody" id="spaceBody"></div>
+    <iframe class="spaceFrame" id="spaceFrame" src="about:blank" title="工具区工具"></iframe>
+  </div>
+</div>
+
+<div id="scrim" title="点这里收起"></div>
+<div class="palette" id="palette">
+  <div class="pbox">
+    <input id="pquery" placeholder="输入：会话名 / 工号 / 「入海口」/「设置」">
+    <div class="plist" id="plist"></div>
+  </div>
+</div>
+
+<script src="panel-renderers.js"></script>
+<script>
+// AV-005：后端地址不再写死——启动时从 config.json 的 apiBase 读（见 bootPanels）。
+// 这两个变量先给默认值，保证 config 读不到时页面照样能跑（默认本地端口，行为等同改造前）。
+let RELAY='http://127.0.0.1:9334', DESK='http://127.0.0.1:9340';
+window.XY={relay:RELAY,desk:DESK,apiBase:''};
+
+// ── ST-133「入海口」：工作台 ⇄ 学习区（两个 iframe 都活着，只切 display）──────
+const STUDY='http://127.1.1.3:9350';                 // 规格：学习区就这个地址
+const EST_KEY='xy.estuary';                          // 记住上次选的那个
+const EST={mode:'desk',loads:{desk:0,study:0}};      // loads 给验收用：切来切去不该涨
+window.__estLoads=EST.loads;
+// ST-133 返工：两个 iframe 都 display:block（保住滚动），所以断言口径改成"同一时刻可见的只有一个"
+window.__estVisible=function(){return Array.prototype.filter.call(document.querySelectorAll('.estFrame'),function(f){return getComputedStyle(f).visibility==='visible'}).length};
+window.__estMode=function(){return EST.mode};
+function estuaryMode(){try{return localStorage.getItem(EST_KEY)==='study'?'study':'desk'}catch(e){return 'desk'}}
+function estuaryApply(mode,save){
+  const m=mode==='study'?'study':'desk';
+  const d=$('deskFrame'), s=$('studyFrame');
+  if(!d||!s)return m;
+  // 只在第一次给 src：之后切走/切回都只是 display，**不重载**
+  if(!d.getAttribute('data-src')){d.setAttribute('data-src',DESK+'/');d.src=DESK+'/'}
+  if(!s.getAttribute('data-src')){s.setAttribute('data-src',STUDY+'/');s.src=STUDY+'/'}
+  d.classList.toggle('on',m==='desk');
+  s.classList.toggle('on',m==='study');
+  const bd=$('segDesk'), bs=$('segStudy');
+  if(bd)bd.classList.toggle('on',m==='desk');
+  if(bs)bs.classList.toggle('on',m==='study');
+  const hint=$('segHint');
+  if(hint)hint.textContent=(m==='desk'?'工作台：干活 / 看板':'学习区：读书 / 答题');
+  EST.mode=m;
+  if(save)try{localStorage.setItem(EST_KEY,m)}catch(e){}
+  return m;
+}
+window.estuaryApply=estuaryApply;
+// 面板宿主进入「入海口」时调这个：保证两个 iframe 都在，模式取上次记的
+window.estuaryEnter=function(){estuaryApply(estuaryMode(),false)};
+// 注意：这段要等下面的 $ 定义完再跑（脚本在 body 末尾，见文件最后 bindEstuary()）
+function bindEstuary(){
+  const d=document.getElementById('deskFrame'), s=document.getElementById('studyFrame');
+  if(d)d.addEventListener('load',()=>{EST.loads.desk++});
+  if(s)s.addEventListener('load',()=>{EST.loads.study++});
+  const bd=document.getElementById('segDesk'), bs=document.getElementById('segStudy');
+  if(bd)bd.addEventListener('click',()=>estuaryApply('desk',true));
+  if(bs)bs.addEventListener('click',()=>estuaryApply('study',true));
+}
+const $=(id)=>document.getElementById(id);
+const esc=(s)=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clock=(t)=>t?new Date(t).toLocaleTimeString('zh-CN',{hour12:false}):'';
+const dayKey=(t)=>{if(!t)return '';const d=new Date(t);return String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};   // D74：跨天分隔用
+
+const S={target:'xunyu',cursor:{xunyu:0,dsh:0},streams:{xunyu:[],dsh:[]},online:false,agents:[],wl:null,health:null,sel:null,histTotal:0,histReady:false};
+
+// ── 渲染 ────────────────────────────────────────────────────────────────
+function drawStream(keepScroll){
+  const el=$('stream');
+  if(!el)return;
+  const oldH=el.scrollHeight,oldTop=el.scrollTop;
+  const list=S.streams[S.target]||[];
+  // D74：每条带 HH:mm，跨天插日期分隔（历史已按 t 排序，增量追加在末尾）
+  let lastDay='';
+  el.innerHTML=list.length?list.map(m=>{
+    const day=dayKey(m.t);
+    const sep=(day&&day!==lastDay)?('<div class="daysep">—— '+esc(day)+' ——</div>'):'';
+    if(day)lastDay=day;
+    const tm=(m.t?('<span class="msgTime">'+clock(m.t)+'</span>'):'');
+    if(m.kind==='sys')return sep+'<div class="msg sys">'+esc(m.text)+'</div>';
+    return sep+'<div class="msg '+(m.kind==='me'?'me':'her')+'">'+tm+esc(m.text)+'</div>';
+  }).join(''):'<div class="msg sys">还没有消息。打字回车发给我。</div>';
+  if(keepScroll)el.scrollTop=oldTop+(el.scrollHeight-oldH);   // 加载更早：把视口按「新增高度」往下推，位置不跳
+  else el.scrollTop=el.scrollHeight;
+}
+function appendMsg(kind,text,at){
+  if(kind!=='sys'&&!text)return;
+  const arr=(S.streams[S.target]=S.streams[S.target]||[]);
+  const t=at||Date.now();
+  if(kind==='sys'&&text&&text.indexOf(' · ')<0)text=clock(t)+' · '+text;   // D74：系统消息也带时间
+  const last=arr[arr.length-1];
+  if(last&&last.text===text&&Math.abs((last.t||0)-t)<2000)return;   // 历史+增量可能同一条，别画两遍
+  arr.push({kind:kind,text:text,t:t});
+  if(arr.length>2000)arr.splice(0,arr.length-1600);
+  drawStream();
+}
+
+// ── 本地历史（D40 读文件 / D46 分页）：壳读 History\window\<鲟鱼|dsh>\*.jsonl 回传 ──
+const bridge=(window.chrome&&window.chrome.webview)?window.chrome.webview:null;
+const HIST={xunyu:{loaded:0,total:0,loading:false,fetched:false},dsh:{loaded:0,total:0,loading:false,fetched:false}};
+function mapTarget(t){const s=String(t||'');return s==='鲟鱼'?'xunyu':(s.toLowerCase()==='dsh'?'dsh':null)}
+function histBar(){
+  const h=HIST[S.target]||HIST.xunyu;
+  const btn=$('loadMore'),info=$('histInfo');
+  if(!btn||!info)return;
+  info.textContent='已加载 '+h.loaded+' / 共 '+h.total+' 条';
+  if(h.total>0&&h.loaded>=h.total){btn.disabled=true;btn.textContent='没有更早的消息了'}
+  else{btn.disabled=Boolean(h.loading);btn.textContent='加载更早的消息（+100）'}
+}
+function requestHistory(limit,offset){
+  if(!bridge)return;
+  const tg=S.target==='dsh'?'dsh':'xunyu';
+  const h=HIST[tg]||(HIST[tg]={loaded:0,total:0,loading:false,fetched:false});
+  if(h.loading)return;
+  h.loading=true;histBar();
+  try{bridge.postMessage({type:'history:load',target:tg,limit:limit||200,offset:offset||0})}
+  catch(e){h.loading=false;histBar()}
+}
+function applyHistory(d){
+  const tg=String((d&&d.target)||'xunyu');
+  const lines=(d&&d.lines)||[];
+  const h=HIST[tg]||(HIST[tg]={loaded:0,total:0,loading:false,fetched:false});
+  h.loading=false;h.fetched=true;
+  h.total=Number(d&&d.total)||0;
+  h.loaded=Number(d&&d.loaded)||(Number((d&&d.offset)||0)+lines.length);
+  const mapped=lines.map(r=>({kind:(r.from==='agent'?'her':'me'),text:String(r.text||''),t:Number(r.t)||0}));
+  const arr=S.streams[tg]||(S.streams[tg]=[]);
+  const fresh=mapped.filter(m=>!arr.some(x=>x.t===m.t&&x.text===m.text));
+  const isCurrent=(S.target==='dsh'?'dsh':'xunyu')===tg;
+  const keep=isCurrent&&Number((d&&d.offset)||0)>0;   // 只有「加载更多」才保位置；首次加载滚到底
+  S.streams[tg]=fresh.concat(arr).slice(-2000);
+  if(isCurrent)drawStream(keep);
+  histBar();
+}
+// 工作台 iframe 里的「打开文档」请求：跨域 iframe 的 chrome.webview.postMessage 到不了宿主，由这里转发
+window.addEventListener('message',(e)=>{
+  if(!e.data||e.data.type!=='desk:open')return;
+  if(!/^http:\/\/127\.0\.0\.1:9340$/.test(String(e.origin||'')))return;   // 只认工作台那个 origin
+  if(bridge){try{bridge.postMessage({type:'open',path:String(e.data.path||'')})}catch(err){}}
+});
+if(bridge)bridge.addEventListener('message',(e)=>{
+  const d=e.data;
+  if(d&&d.type==='history:data')applyHistory(d);
+  else if(d&&d.type==='proc:data')onProcData(d);
+  else if(d&&d.type==='launch:result')onLaunchResult(d);
+});
+async function alignCursor(){
+  try{
+    const r=await fetch(RELAY+'/lines?after=999999999&target='+S.target+'&client=web',{cache:'no-store'}).then(x=>x.json());
+    if(r&&r.ok)S.cursor[S.target]=r.cursor||0;
+  }catch(e){}
+}
+// ── 中键（D40）：按住拖=平移滚动；单击=跳到最近一条他人消息 ──
+function jumpToLastOther(){
+  const list=[...document.querySelectorAll('.msg.her')];
+  if(!list.length)return;
+  list[list.length-1].scrollIntoView({block:'center',behavior:'smooth'});
+}
+(function(){
+  const el=$('stream');
+  let pan=null;
+  el.addEventListener('pointerdown',e=>{
+    if(e.button!==1)return;
+    e.preventDefault();
+    pan={y:e.clientY,top:el.scrollTop,moved:0,t:Date.now()};
+    el.classList.add('panning');
+  });
+  el.addEventListener('pointermove',e=>{
+    if(!pan)return;
+    const dy=e.clientY-pan.y;
+    if(Math.abs(dy)>pan.moved)pan.moved=Math.abs(dy);
+    el.scrollTop=pan.top-dy;
+  });
+  window.addEventListener('pointerup',e=>{
+    if(!pan)return;
+    const isClick=(pan.moved<4)&&((Date.now()-pan.t)<350);
+    el.classList.remove('panning');
+    pan=null;
+    if(isClick)jumpToLastOther();
+  });
+  el.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault()});
+})();
+
+function drawStatus(){
+  $('dot').className='dot '+(S.online?'on':'off');
+  $('stat').textContent=S.online?('relay 在线'+(S.health&&S.health.queue?' · 队列 '+S.health.queue.depth:'')):'relay 断开，重连中…';
+}
+function drawAgents(){
+  const rows=(S.agents||[]).filter(a=>a.running||a.live||a.no||/鲟鱼|QQ|子实体|企微|黑话/.test(String(a.title||'')));
+  const groups={};['工作组','本体','QQ 通道','其他'].forEach(g=>groups[g]=[]);
+  rows.forEach(a=>{
+    const t=String(a.title||'');
+    const g=a.no?'工作组':(/本体/.test(t)?'本体':(/QQ|子实体|黑话/.test(t)?'QQ 通道':'其他'));
+    groups[g].push(a);
+  });
+  let html='';
+  ['工作组','本体','QQ 通道','其他'].forEach(g=>{
+    const list=groups[g];if(!list.length)return;
+    html+='<div class="sec">'+g+'</div>';
+    list.sort((a,b)=>Number(b.live)-Number(a.live)||Number(b.running)-Number(a.running)).forEach(a=>{
+      const live=a.live||a.running;
+      const nm=a.no?('工号'+a.no):String(a.title||'').replace(/^鲟鱼工作组/,'').replace(/^鲟鱼[—-]/,'');
+      html+='<div class="row" data-agent="'+esc(a.id)+'"><span class="dot '+(live?'on':'')+'"></span>'+
+        '<span class="nm">'+esc(nm)+'</span><span class="tm">'+esc(a.idleText||'')+'</span></div>';
+    });
+  });
+  $('agents').innerHTML=html;
+  document.querySelectorAll('[data-agent]').forEach(el=>{
+    // 重渲染后要把"当前选中"补回来：pullDesk 每轮都会重写 #agents.innerHTML，
+    // 不补的话刚点出来的高亮会在 1 秒内被冲掉（主人实测"点了没反应"就是这个）
+    if(S.sel&&el.dataset.agent===S.sel)el.classList.add('on');
+    el.addEventListener('click',()=>selectAgent(el.dataset.agent));
+  });
+}
+function selectAgent(id){
+  const a=(S.agents||[]).find(x=>x.id===id);if(!a)return;
+  S.sel=id;
+  document.querySelectorAll('.row').forEach(r=>r.classList.remove('on'));
+  document.querySelectorAll('[data-agent="'+id+'"]').forEach(r=>r.classList.add('on'));
+  drawInfo(a);
+  openRight();
+}
+function drawInfo(a){
+  attachRight();                       // 浮层是"用时才插进 DOM"的
+  // 标题跟着走：点「工号04」→ 浮层标题就是「工号04」（以前写死"这个会话"，看起来像没切换）
+  const ttl=$('rightTitle');
+  if(ttl)ttl.textContent=a.no?('工号'+a.no):String(a.title||'这个会话');
+  const groups=(S.wl&&S.wl.groups)||[];
+  const g=a.no?groups.find(x=>String(x.target)===String(a.no)):null;
+  const doing=a.doing||'—';
+  const q=g?(g.queue||[]).length:(a.queued||0);
+  const next=a.nextTask?(' · '+a.nextTask.ticket):'';
+  const subs=(S.wl&&S.wl.submitted)||[];
+  const mine=subs.filter(t=>String(t.target)===String(a.no));
+  const at=(S.health&&S.health.attribution&&S.health.attribution.buckets)||[];
+  let cost='—';
+  for(const b of at){const u=(b.units||[]).find(x=>x.label&&(a.no?x.label.indexOf('工号'+a.no)===0:false));if(u){cost='¥'+(u.cost||0).toFixed(2);break}}
+  $('info').innerHTML=
+    '<div class="card"><h4>'+esc(a.no?('工号'+a.no):String(a.title||''))+'</h4>'+
+      '<div class="kv"><span>状态</span><b>'+(a.live?'在干活':(a.running?'在跑':'空闲'))+'</b></div>'+
+      '<div class="kv"><span>空闲</span><b>'+esc(a.idleText||'—')+'</b></div>'+
+      '<div class="kv"><span>今日</span><b>'+esc(cost)+'</b></div>'+
+    '</div>'+
+    '<div class="card"><h4>正在干什么</h4><div class="tiny">'+esc(doing)+'</div></div>'+
+    '<div class="card"><h4>排队</h4><div class="kv"><span>queued</span><b>'+q+next+'</b></div>'+
+      ((g&&(g.queue||[]).length)?g.queue.map(t=>'<div class="tiny">· '+esc(t.ticket||t.id)+' '+esc(t.title)+'</div>').join(''):'<div class="tiny">没有排队</div>')+
+    '</div>'+
+    (mine.length?('<div class="card"><h4>待验收</h4>'+mine.map(t=>'<div class="tiny">· '+esc(t.id)+' '+esc(t.title)+'</div>').join('')+'</div>'):'');
+}
+
+// ── 数据 ────────────────────────────────────────────────────────────────
+async function ping(){
+  try{
+    const h=await fetch(RELAY+'/health',{cache:'no-store'}).then(r=>r.json());
+    S.online=!!h.ok;S.health=h;
+  }catch(e){S.online=false}
+  drawStatus();
+}
+async function pullLines(){
+  try{
+    const r=await fetch(RELAY+'/lines?after='+S.cursor[S.target]+'&target='+S.target+'&client=web',{cache:'no-store'}).then(x=>x.json());
+    if(!r.ok)return;
+    if(Array.isArray(r.lines))for(const ln of r.lines){
+      if(ln.n>S.cursor[S.target])S.cursor[S.target]=ln.n;
+      if(ln.from==='agent'&&ln.text){
+        appendMsg('her',ln.text);
+        if(!sidebarOpen){unread++;updateRailDot()}   // D47：窄条红点靠 relay 增量，不依赖列表
+      }
+    }
+  }catch(e){}
+}
+// ── AV-007 布局：默认只有聊天；左栏=抽屉（可钉成常驻列）、右栏=浮层；**没显示时不插 DOM** ──
+let sidebarOpen=false,listLoaded=false,listScrollTop=0,unread=0;
+let leftPin=(function(){
+  try{
+    var v=localStorage.getItem('xy.sidePinned');      // AV-007 新键
+    if(v==null)v=localStorage.getItem('leftPin');     // 兼容旧键
+    return v==='1';
+  }catch(e){return false}
+})();
+let leftOpen=false;
+let leftEl=null,rightEl=null;      // 摘下来的两个节点（退出 DOM 就不占布局）
+function updateRailDot(){ /* 竖条红点已随 rail 一起去掉 */ }
+function rightOpen(){return document.body.getAttribute('data-right')==='open'}
+function captureEls(){
+  leftEl=leftEl||document.getElementById('left');
+  rightEl=rightEl||document.getElementById('right');
+}
+function attachLeft(){ if(leftEl&&!leftEl.isConnected){const s=document.getElementById('shell');if(s)s.prepend(leftEl)} }
+function detachLeft(){ if(leftEl&&leftEl.isConnected)leftEl.remove() }
+function attachRight(){
+  if(!rightEl||rightEl.isConnected)return;
+  // ST-133：≥1400 右栏是 .shell 的第三列（static），必须挂回 .shell 里才吃得到 280px 栅格；
+  //         <1400 它是浮层（fixed），挂到 .app 上不占布局。挂错位置会变成"整宽一条"（踩过）。
+  const wide=(window.innerWidth||0)>=1400, s=document.getElementById('shell');
+  if(wide&&s){ s.appendChild(rightEl); return; }
+  const a=document.querySelector('.app'); if(a)a.appendChild(rightEl);
+}
+function detachRight(){ if(rightEl&&rightEl.isConnected)rightEl.remove() }
+function openRight(){
+  attachRight();
+  requestAnimationFrame(function(){document.body.setAttribute('data-right','open')});
+}
+function closeRight(){
+  document.body.removeAttribute('data-right');
+  setTimeout(function(){ if(!rightOpen())detachRight(); },260);
+}
+let autoRight=false;   // ST-133：宽屏自动开的右栏（收窄时自动收）
+function applyLayout(){
+  captureEls();
+  // ST-133 宽屏自适应：≥1000 左导航常驻（220）；≥1400 再加右信息栏（280）
+  const w=window.innerWidth||document.documentElement.clientWidth||0;
+  const wideL=w>=1000, wideR=w>=1400;
+  const showLeft=leftPin||wideL;
+  document.body.setAttribute('data-left', showLeft?'pinned':'drawer');
+  if(showLeft){ leftOpen=false; attachLeft(); }
+  else { if(leftOpen)attachLeft(); else detachLeft(); }
+  if(leftEl)leftEl.classList.toggle('open', !showLeft && leftOpen);
+  if(wideR){ attachRight(); if(!rightOpen()){document.body.setAttribute('data-right','open'); autoRight=true;} drawRail(); }
+  else {
+    // 收窄回 <1400：宽屏时自动开的右栏要自动收起，否则它会以浮层身份压住单列正文
+    if(autoRight && rightOpen()){ document.body.removeAttribute('data-right'); }
+    autoRight=false;
+    if(!rightOpen())detachRight();
+  }
+  document.body.setAttribute('data-scrim', (!showLeft && leftOpen)?'1':'0');
+  const pb=document.getElementById('pinLeft');
+  if(pb){pb.classList.toggle('on',leftPin);pb.title=leftPin?'已固定：点一下恢复成抽屉':'固定为常驻列（记住选择）'}
+  // ST-133：宽屏时左导航是**常驻**的，它也属于"侧栏开着"——否则 loadList/pullDesk 的门控
+  //         （sidebarOpen）会一直判成收起，工号/对象那一栏永远停在「加载中…」。
+  sidebarOpen = leftPin || leftOpen || wideL;
+  const b=document.getElementById('leftBody');
+  if(sidebarOpen&&b)b.scrollTop=listScrollTop;
+}
+function applySidebar(){applyLayout()}   // 兼容旧调用名
+function openLeft(){ leftOpen=true; unread=0; applyLayout(); if(!listLoaded)loadList(); }
+function closeLeft(){ const b=document.getElementById('leftBody'); if(b)listScrollTop=b.scrollTop||0; leftOpen=false; applyLayout(); }
+function togglePin(){
+  leftPin=!leftPin;
+  try{localStorage.setItem('xy.sidePinned',leftPin?'1':'0')}catch(e){}
+  if(leftPin){ applyLayout(); if(!listLoaded)loadList(); }
+  else applyLayout();
+}
+function toggleSidebar(){ if(leftPin){ togglePin(); return } leftOpen?closeLeft():openLeft(); }
+async function loadList(){
+  if(listLoaded)return;
+  listLoaded=true;
+  $('agents').innerHTML='<div class="skel">加载中…</div>';
+  await pullDesk();
+  if(!S.agents||!S.agents.length)$('agents').innerHTML='<div class="skel">列表为空（DSH 投影读不到）</div>';
+}
+async function pullDesk(){
+  // D47：收起且没选工号时，一个会话列表接口都不打（冷启动零请求）
+  if(!sidebarOpen&&!S.sel)return;
+  try{
+    const [a,w,h]=await Promise.all([
+      fetch(DESK+'/api/agents',{cache:'no-store'}).then(r=>r.json()),
+      fetch(DESK+'/api/worklist',{cache:'no-store'}).then(r=>r.json()),
+      fetch(DESK+'/api/sessions-health',{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
+    ]);
+    S.agents=a.agents||[];S.wl=w;S.health=(S.health||{});if(h)S.attr=h.attribution;
+    if(S.attr)S.health.attribution=S.attr;
+    drawAgents();
+    if(S.sel){const x=S.agents.find(z=>z.id===S.sel);if(x)drawInfo(x)}
+  }catch(e){}
+}
+
+// ── ST-133 宽屏信息栏：今日待办 / 学习进度 / 连接状态（≥1400 才显示）────────────
+// 数据来源都是**只读**接口：工作台 /api/worklist、学习区 /api/index/tree、relay /health。
+// 两条路都试：相对路径（http://127.0.0.1:9342 走 serve.mjs 反代）→ 绝对地址（file:// 壳里跨源直连）。
+// 全都读不到就写「暂无数据」——任务书 §二：不许留空框。
+let railAt=0, railBusy=false;
+async function fetchJSON(urls){
+  for(const u of urls){
+    try{ const r=await fetch(u,{cache:'no-store'}); if(r&&r.ok)return await r.json(); }catch(e){}
+  }
+  return null;
+}
+function railLine(ok,label,val){
+  const dot=(ok===null||ok===undefined)?'':('<span class="railDot '+(ok?'ok':'bad')+'"></span>');
+  return '<div class="railRow"><span>'+dot+esc(label)+'</span><b>'+esc(val)+'</b></div>';
+}
+async function drawRail(force){
+  const wide=(window.innerWidth||0)>=1400;
+  if(!wide)return;
+  if(railBusy)return;
+  if(!force&&Date.now()-railAt<20000)return;
+  railBusy=true;railAt=Date.now();
+  const todo=$('railTodo'),studyEl=$('railStudy'),conn=$('railConn');
+  try{
+    // 四个只读接口并行发（串行时工作台台账 1.7MB 会拖到 3 秒以上，连接卡就迟迟不出来）
+    const [wl,tr,rh,dh]=await Promise.all([
+      fetchJSON(['/api/worklist',DESK+'/api/worklist']),
+      fetchJSON(['/study/api/index/tree',STUDY+'/api/index/tree']),
+      fetchJSON(['/relay/health',RELAY+'/health']),
+      fetchJSON(['/api/health',DESK+'/api/health'])
+    ]);
+    // 今日待办：台账汇总 + 工号 06 手上那几张
+    if(todo){
+      if(wl&&wl.ok&&wl.summary){
+        const s=wl.summary;
+        const mine=((wl.tasks)||[]).filter(t=>String(t.target)==='06'&&(t.state==='doing'||t.state==='queued'));
+        todo.innerHTML=railLine(null,'进行中',String(s.doing==null?'—':s.doing))
+          +railLine(null,'待验收',String(s.submitted==null?'—':s.submitted))
+          +railLine(null,'排队',String(s.queued==null?'—':s.queued))
+          +(mine.length?('<div class="railNote">工号 06：'+mine.slice(0,3).map(t=>esc(String(t.id||''))+' '+esc(String(t.ticket||t.title||'').slice(0,16))).join('；')+'</div>')
+                       :'<div class="railNote">工号 06：暂无待办</div>');
+      }else todo.innerHTML='<div class="tiny">暂无数据</div>';
+    }
+    // 学习进度：学科树的分档计数（只念 _tree.json，页面不算）
+    if(studyEl){
+      if(tr&&tr.ok&&tr.counts){
+        const c=tr.counts;
+        studyEl.innerHTML=railLine(null,'已掌握',String(c.mastered==null?'—':c.mastered)+' / '+String(c.total==null?'—':c.total))
+          +railLine(null,'正在学',String(c.learning==null?'—':c.learning))
+          +railLine(null,'可开工',String(c.available==null?'—':c.available))
+          +railLine(null,'学科',String(((tr.subjects)||[]).length));
+      }else studyEl.innerHTML='<div class="tiny">暂无数据</div>';
+    }
+    // 连接状态：三个本地服务各探一次
+    if(conn){
+      const rOk=!!(rh&&rh.ok), dOk=!!(dh&&dh.ok), sOk=!!(tr&&tr.ok);
+      conn.innerHTML=railLine(rOk,'relay 9334',rOk?'在线':'离线')
+        +railLine(dOk,'工作台 9340',dOk?'在线':'离线')
+        +railLine(sOk,'学习区 9350',sOk?'在线':'离线')
+        +'<div class="railNote">'+(S.online?'聊天通道：relay 在线':'聊天通道：重连中')+'</div>';
+    }
+  }catch(e){
+    if(todo)todo.innerHTML='<div class="tiny">暂无数据</div>';
+    if(studyEl)studyEl.innerHTML='<div class="tiny">暂无数据</div>';
+    if(conn)conn.innerHTML='<div class="tiny">暂无数据</div>';
+  }finally{railBusy=false}
+}
+
+
+// ── 交互 ────────────────────────────────────────────────────────────────
+function setTarget(t){
+  if(S.target===t)return;
+  S.target=t;
+  document.querySelectorAll('[data-t]').forEach(r=>r.classList.toggle('on',r.dataset.t==t));
+  drawStream();
+  histBar();
+  const h=HIST[t]||(HIST[t]={loaded:0,total:0,loading:false,fetched:false});
+  if(!h.fetched)requestHistory(200,0);   // 切到没加载过的那条会话才拉首批
+  alignCursor().then(()=>pullLines());
+}
+async function send(){
+  const v=$('input').value.trim();if(!v)return;
+  $('input').value='';
+  appendMsg('me',v);
+  try{
+    const r=await fetch(RELAY+'/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:v,target:S.target})}).then(x=>x.json());
+    if(!r.ok)appendMsg('sys','发送失败：'+(r.error||''));
+  }catch(e){appendMsg('sys','发送失败：'+e.message)}
+}
+function showViewErr(msg){
+  const el=$('viewErr');
+  if(!el)return;
+  el.textContent=msg;
+  el.classList.add('on');
+  clearTimeout(window.__viewErrT);
+  window.__viewErrT=setTimeout(()=>el.classList.remove('on'),8000);
+}
+function setView(v){
+  // AV-005：切视图 = 让对应面板聚焦（面板 id 在 scenes/*.json 里，默认就是 chat/desk/space）
+  // D52 的兜底保留：任何一步抛错都在页面上报出来，不许白屏/静默无反应
+  try{
+    if(!window.PANELS||typeof window.PANELS.setActive!=='function')throw new Error('面板系统没起来（panel-renderers.js 没加载？）');
+    window.PANELS.setActive(v);
+  }catch(e){
+    showViewErr('切到「'+(v||'?')+'」出错：'+e.message);
+    try{console.error(e)}catch(_){}
+  }
+}
+// ── 工具区（D48）：数据驱动注册表 + 白名单启动 ──
+const SPACE_CATS=[{id:'monitor',label:'监控'},{id:'data',label:'数据'},{id:'dev',label:'开发'},{id:'ops',label:'运维'},{id:'other',label:'其他'}];
+const SPACE_TOOLS=[];
+const spaceState={cat:null,launched:null};
+/** 注册工具入口：{category, id, label, desc, icon?, launch:{kind:'url',url} | {kind:'exe',exe,args?}} */
+function workspaceRegister(tool){
+  if(!tool||!tool.id||!tool.label||!tool.launch)return false;
+  if(SPACE_TOOLS.some(t=>t.id===tool.id))return false;
+  if(!SPACE_CATS.some(c=>c.id===tool.category))return false;
+  SPACE_TOOLS.push(tool);return true;
+}
+window.workspace={register:workspaceRegister,tools:function(){return SPACE_TOOLS.slice()},cats:function(){return SPACE_CATS.slice()}};
+// 本次范围：注册 1 个真实入口（分类「数据」→ 花费看板 → 工作台 9340）
+workspaceRegister({category:'data',id:'cost-board',label:'花费看板',icon:'¥',desc:'今天谁在烧钱、命中率多少（工作台花费区）',launch:{kind:'url',url:DESK+'/'}});
+// D49：首个 exe 类工具——验证「分类→子菜单→启动→二次确认→进程出现」
+workspaceRegister({category:'ops',id:'watt-toolkit',label:'网络加速（Watt Toolkit）',icon:'🌐',
+  desc:'启动 Steam++，用于 GitHub 加速；会弹 UAC，需要确认',
+  launch:{kind:'exe',exe:'C:\\Program Files\\Steam++\\Steam++.exe',args:[],watch:['Steam++','Steam++_Accelerator'],
+          confirm:'将启动 Steam++（需要 UAC 管理员权限），继续？'}});
+
+// ── D49：exe 工具的进程状态与启动结果 ───────────────────────────────
+const PROC_STATE={};
+function setToolErr(id,msg){
+  const el=document.querySelector('[data-err="'+id+'"]');
+  if(!el)return;
+  el.textContent=msg||'';
+  el.classList.toggle('on',Boolean(msg));
+}
+function queryProc(t){
+  if(!bridge||!t.launch||t.launch.kind!=='exe')return;
+  try{bridge.postMessage({type:'proc:query',names:t.launch.watch||[],toolId:t.id})}catch(e){}
+}
+function updateToolBtn(id){
+  const btn=document.querySelector('[data-launch="'+id+'"]');
+  if(!btn)return;
+  const st=PROC_STATE[id];
+  if(st&&st.running){
+    const pids=(st.procs||[]).map(p=>p.pid).join(', ');
+    btn.disabled=true;
+    btn.textContent='已在运行'+(pids?'（pid '+pids+'）':'');
+  }else{
+    btn.disabled=false;
+    btn.textContent='启动';
+  }
+}
+function onProcData(d){
+  PROC_STATE[d.toolId]=d;
+  updateToolBtn(d.toolId);
+}
+function onLaunchResult(d){
+  const id=d.toolId;
+  const btn=document.querySelector('[data-launch="'+id+'"]');
+  if(d.ok){
+    setToolErr(id,'');
+    PROC_STATE[id]={running:true,procs:d.procs||[]};
+    updateToolBtn(id);
+  }else{
+    setToolErr(id,d.error||'启动失败');
+    if(btn){btn.disabled=false;btn.textContent='启动'}
+  }
+}
+
+function spaceOpenCats(){
+  spaceState.cat=null;spaceState.launched=null;
+  $('spaceFrame').classList.remove('on');$('spaceFrame').src='about:blank';
+  $('spaceBody').classList.remove('hide');
+  $('spaceHead').innerHTML='<div class="crumb">工具区</div><span class="grow"></span><span class="crumb">'+SPACE_TOOLS.length+' 个工具</span>';
+  $('spaceBody').innerHTML=SPACE_CATS.map(c=>{
+    const n=SPACE_TOOLS.filter(t=>t.category===c.id).length;
+    return '<button class="catCard" data-cat="'+esc(c.id)+'"><span class="catName">'+esc(c.label)+'</span><span class="catNum">'+n+' 个工具</span></button>';
+  }).join('');
+  document.querySelectorAll('[data-cat]').forEach(b=>b.addEventListener('click',()=>spaceOpenCat(b.dataset.cat)));
+}
+function spaceOpenCat(id){
+  const c=SPACE_CATS.find(x=>x.id===id);if(!c)return;
+  spaceState.cat=id;spaceState.launched=null;
+  $('spaceFrame').classList.remove('on');$('spaceFrame').src='about:blank';
+  $('spaceBody').classList.remove('hide');
+  const list=SPACE_TOOLS.filter(t=>t.category===id);
+  $('spaceHead').innerHTML='<button class="btn" id="spaceBack">← 返回</button><div class="crumb">工具区 / '+esc(c.label)+'</div><span class="grow"></span><span class="crumb">'+list.length+' 个工具</span>';
+  $('spaceBody').innerHTML=list.length?list.map(t=>'<div class="toolRow">'+
+    '<span class="toolIcon">'+esc(t.icon||'▦')+'</span>'+
+    '<div class="toolMain"><div class="toolName">'+esc(t.label)+'</div><div class="toolDesc">'+esc(t.desc||'')+'</div>'+
+    '<div class="toolErr" data-err="'+esc(t.id)+'"></div></div>'+
+    '<button class="btn pri" data-launch="'+esc(t.id)+'">启动</button></div>').join(''):'<div class="empty">暂无工具</div>';
+  $('spaceBack').addEventListener('click',spaceOpenCats);
+  document.querySelectorAll('[data-launch]').forEach(b=>b.addEventListener('click',()=>spaceLaunch(b.dataset.launch)));
+  list.filter(t=>t.launch&&t.launch.kind==='exe').forEach(t=>{const b=document.querySelector('[data-launch="'+t.id+'"]');if(b){b.disabled=true;b.textContent='检查中…'}queryProc(t)});
+}
+function spaceLaunch(id){
+  const t=SPACE_TOOLS.find(x=>x.id===id);if(!t||!t.launch)return;
+  const L=t.launch;
+  if(L.kind==='url'){
+    let u;try{u=new URL(L.url,location.href)}catch(e){alert('地址不合法');return}
+    const local=(u.hostname==='127.0.0.1'||u.hostname==='localhost');
+    if(u.protocol!=='http:'||!local){alert('只允许本地 http 页面（127.0.0.1 / localhost）');return}
+    $('spaceFrame').src=u.href;$('spaceFrame').classList.add('on');
+    $('spaceBody').classList.add('hide');
+    spaceState.launched=t.id;
+    const c=SPACE_CATS.find(x=>x.id===t.category);
+    $('spaceHead').innerHTML='<button class="btn" id="spaceBack">← 返回</button><div class="crumb">工具区 / '+esc(c?c.label:t.category)+' / '+esc(t.label)+'</div>';
+    $('spaceBack').addEventListener('click',()=>spaceOpenCat(t.category));
+    return;
+  }
+  if(L.kind==='exe'){
+    const msg=L.confirm||('启动本地程序：'+String(L.exe||'').split(/[\\/]/).pop()+'？\n\n只有注册表里登记过的程序能被启动。');
+    if(!window.confirm(msg))return;
+    if(!bridge){setToolErr(t.id,'当前不是宿主壳环境，无法启动本地程序');return}
+    setToolErr(t.id,'');
+    const btn=document.querySelector('[data-launch="'+t.id+'"]');
+    if(btn){btn.disabled=true;btn.textContent='启动中…'}
+    try{bridge.postMessage({type:'launch',exe:L.exe,args:L.args||[],watch:L.watch||[],toolId:t.id})}
+    catch(e){setToolErr(t.id,'启动请求没发出去：'+e.message);if(btn){btn.disabled=false;btn.textContent='启动'}}
+    return;
+  }
+  alert('这个入口的启动方式不认识：'+L.kind);
+}
+
+// Ctrl+K
+const CMDS=[
+  {label:'切到 鲟鱼（QQ 侧）',run:()=>setTarget('xunyu')},
+  {label:'切到 DSH（我这边）',run:()=>setTarget('dsh')},
+  {label:'打开 入海口',run:()=>setView('desk')},
+  {label:'回到 聊天',run:()=>setView('chat')},
+  {label:'打开 会话检测（浏览器）',run:()=>window.open(DESK+'/#more')},
+  {label:'重新连 relay',run:()=>ping()}
+];
+function paletteList(q){
+  const ql=String(q||'').toLowerCase();
+  return CMDS.concat((S.agents||[]).map(a=>({label:(a.no?'工号'+a.no+' · ':'')+String(a.title||''),run:()=>{selectAgent(a.id);setView('chat')}})))
+    .filter(c=>!ql||c.label.toLowerCase().indexOf(ql)>=0).slice(0,30);
+}
+let pSel=0,pItems=[];
+function drawPalette(){
+  pItems=paletteList($('pquery').value);
+  if(pSel>=pItems.length)pSel=Math.max(0,pItems.length-1);
+  $('plist').innerHTML=pItems.map((c,i)=>'<div class="pitem'+(i===pSel?' on':'')+'" data-i="'+i+'"><span>'+esc(c.label)+'</span><span class="tiny">↵</span></div>').join('')||'<div class="pitem tiny">没有匹配项</div>';
+  document.querySelectorAll('[data-i]').forEach(el=>el.addEventListener('click',()=>{const c=pItems[+el.dataset.i];if(c){closePalette();c.run()}}));
+}
+function openPalette(){$('palette').classList.add('on');$('pquery').value='';pSel=0;drawPalette();$('pquery').focus()}
+function closePalette(){$('palette').classList.remove('on')}
+
+document.querySelectorAll('[data-t]').forEach(r=>r.addEventListener('click',()=>setTarget(r.dataset.t)));
+$('btnSend').addEventListener('click',send);
+$('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+// AV-005：tab 由 scenes/*.json 的 panels 自动生成（见 bootPanels），这里不再写死按钮
+// AV-006：玻璃开关（真生效：改 html[data-glass] + 写 localStorage.glass）+ 首屏计时
+function glassNow(){return document.documentElement.getAttribute('data-glass')==='1'}
+function applyGlass(on){
+  document.documentElement.setAttribute('data-glass', on?'1':'0');
+  var b=$('glassToggle'); if(b)b.textContent=on?'已开':'已关';
+}
+function setGlass(on){
+  try{localStorage.setItem('glass',on?'1':'0')}catch(e){}
+  applyGlass(on);
+}
+applyGlass(glassNow());
+// 首屏数字：navigationStart → first-contentful-paint（没有就退回 domContentLoaded）
+(function(){
+  const paint=(performance.getEntriesByType&&performance.getEntriesByType('paint'))||[];
+  const fcp=paint.find(p=>p.name==='first-contentful-paint');
+  const nav=performance.getEntriesByType('navigation')[0];
+  const t=fcp?fcp.startTime:(nav?nav.domContentLoadedEventEnd:0);
+  window.__firstPaint=Math.round(t);
+  console.log('[AV-006] first-contentful-paint = '+window.__firstPaint+' ms · glass='+document.documentElement.getAttribute('data-glass'));
+})();
+// 首屏数字：navigationStart → first-contentful-paint（没有就退回 domContentLoaded）
+(function(){
+  const paint=(performance.getEntriesByType&&performance.getEntriesByType('paint'))||[];
+  const fcp=paint.find(p=>p.name==='first-contentful-paint');
+  const nav=performance.getEntriesByType('navigation')[0];
+  const t=fcp?fcp.startTime:(nav?nav.domContentLoadedEventEnd:0);
+  window.__firstPaint=Math.round(t);
+  console.log('[AV-006] first-contentful-paint = '+window.__firstPaint+' ms');
+})();
+if($('btnPalette'))$('btnPalette').addEventListener('click',openPalette);
+$('pquery').addEventListener('input',()=>{pSel=0;drawPalette()});
+$('pquery').addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closePalette();return}
+  if(e.key==='ArrowDown'){pSel=Math.min(pItems.length-1,pSel+1);drawPalette();e.preventDefault()}
+  if(e.key==='ArrowUp'){pSel=Math.max(0,pSel-1);drawPalette();e.preventDefault()}
+  if(e.key==='Enter'){const c=pItems[pSel];if(c){closePalette();c.run()}}
+});
+$('palette').addEventListener('click',e=>{if(e.target===$('palette'))closePalette()});
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openPalette()}
+  if(e.key==='Escape'){
+    closePalette();
+    // D48：在工具区子菜单/工具页里，Esc 先回上一级
+    if(window.PANELS&&window.PANELS.active==='space'&&spaceState.cat){spaceOpenCats();return}
+    if(rightOpen()){closeRight();return}
+    if(!leftPin&&leftOpen){closeLeft();return}
+  }
+});
+$('btnRight').addEventListener('click',()=>{
+  if(rightOpen()){closeRight();return}
+  const a=S.sel?(S.agents||[]).find(x=>x.id===S.sel):null;
+  if(a)drawInfo(a);
+  openRight();
+});
+$('btnLeft').addEventListener('click',()=>toggleSidebar());
+if($('pinLeft'))$('pinLeft').addEventListener('click',togglePin);
+if($('closeLeft'))$('closeLeft').addEventListener('click',closeLeft);
+if($('closeRight'))$('closeRight').addEventListener('click',closeRight);
+if($('scrim'))$('scrim').addEventListener('click',function(){ if(rightOpen())closeRight(); else if(!leftPin&&leftOpen)closeLeft(); });
+// AV-006：设置面板（玻璃开关挪到这里；文案与当前状态都显示出来）
+function renderSettings(){
+  attachRight();
+  const on=glassNow();
+  $('info').innerHTML='<div class="card"><h4>设置</h4>'+
+    '<div class="kv"><span>relay</span><b>'+esc(RELAY)+'</b></div>'+
+    '<div class="kv"><span>工作台</span><b>'+esc(DESK)+'</b></div>'+
+    '<div class="kv"><span>relay 状态</span><b>'+(S.online?'在线':'断开')+'</b></div>'+
+    '<div class="setRow"><div class="setText"><div class="setLbl">玻璃质感</div>'+
+      '<div class="tiny">关=纯色更清晰（推荐）；开=毛玻璃</div></div>'+
+      '<button class="btn" id="glassToggle">'+(on?'已开':'已关')+'</button></div>'+
+    '<div class="tiny" style="margin-top:6px">窗口尺寸/位置自动记住；<b>Ctrl+K</b> 仍是命令面板；开关状态会记住（也可用 ?glass=0/1）。</div></div>';
+  const b=$('glassToggle');
+  if(b)b.addEventListener('click',function(){ setGlass(!glassNow()); renderSettings(); });
+  openRight();
+}
+$('btnSettings').addEventListener('click',renderSettings);
+
+// ── AV-005：面板启动（读 config.json → scenes/<id>.json → 建面板与 tab）────────
+async function bootPanels(){
+  let cfg=null;
+  try{ cfg=await (await fetch('config.json',{cache:'no-store'})).json(); }
+  catch(e){ showViewErr('读不到 config.json（'+e.message+'）—— 先用默认本地地址跑'); }
+  cfg=cfg||{};
+  const base=String(cfg.apiBase||'').replace(/\/+$/,'');
+  const isFile=location.protocol==='file:';
+  // apiBase 有值：base + 相对路径（为将来上云留路）；apiBase 为空：file:// 直连端口，http:// 走同源反代（serve.mjs）
+  const ep=(k)=>{ const c=cfg[k]||{}; if(base)return base+(c.path||''); return isFile?(c.direct||''):(c.path||''); };
+  const rUrl=ep('relay'), dUrl=ep('desk');
+  if(rUrl)RELAY=rUrl;
+  if(dUrl)DESK=dUrl;
+  window.XY={relay:RELAY,desk:DESK,apiBase:base};
+bindEstuary();
+  const costTool=SPACE_TOOLS.find(t=>t.id==='cost-board');
+  if(costTool&&costTool.launch&&costTool.launch.kind==='url')costTool.launch.url=DESK+'/';
+  const sceneId=String(cfg.scene||'default');
+  let scene=null;
+  try{ scene=await (await fetch('scenes/'+sceneId+'.json',{cache:'no-store'})).json(); }
+  catch(e){ showViewErr('读不到 scenes/'+sceneId+'.json：'+e.message); }
+  if(!window.PANELS){ showViewErr('面板系统没加载（panel-renderers.js）'); return; }
+  if(scene&&Array.isArray(scene.panels)&&scene.panels.length){ window.PANELS.build(scene); }
+  else{ window.PANELS.build({id:'fallback',name:'兜底',cols:12,layout:'focus',panels:[{id:'chat',type:'chat',title:'聊天',w:12,h:1}]}); }
+}
+
+// ── 启动 ────────────────────────────────────────────────────────────────
+async function boot(){
+  await bootPanels();
+  drawStream();drawStatus();
+  histBar();
+  requestHistory(200,0);
+  $('loadMore').addEventListener('click',()=>{
+    const h=HIST[S.target]||HIST.xunyu;
+    if(h.loading||(h.total>0&&h.loaded>=h.total))return;
+    requestHistory(100,h.loaded);   // offset = 已经加载了多少条，壳从尾部往前再取 100
+  });
+  // D47：左栏默认收起（首次安装），上次展开过才展开；收起时不发列表请求
+  captureEls();           // 先抓住两个节点，再决定挂不挂
+  applyLayout();          // 默认：无侧栏（除非上次把左栏钉住了）；≥1000 自动常驻左栏
+  drawRail(true);         // ST-133：宽屏信息栏（≥1400 才有内容，窄屏 return）
+  setInterval(function(){ if((window.innerWidth||0)>=1400)drawRail(); },60000);
+  // ST-133：窗口拉宽/收窄时重算（1000 / 1400 两个断点）
+  window.addEventListener('resize', function(){ clearTimeout(window.__layT); window.__layT=setTimeout(applyLayout,120); });
+  if(sidebarOpen)loadList();
+  ping();
+  setInterval(ping,3000);
+  setInterval(pullDesk,5000);   // 函数内部有门控：收起且没选工号时直接 return
+  // 先对齐游标再开始增量：否则 cursor=0 会把 relay 缓存全拉一遍，和历史重复
+  alignCursor().then(()=>{
+    pullLines();
+    setInterval(pullLines,1200);
+  });
+}
+boot();
+</script>
+</body>
+</html>

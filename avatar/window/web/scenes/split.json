@@ -1,0 +1,26 @@
+{
+  "id": "split",
+  "name": "并排（网格）",
+  "cols": 12,
+  "layout": "tile",
+  "panels": [
+    {
+      "id": "chat",
+      "type": "chat",
+      "col": 0,
+      "row": 0,
+      "w": 4,
+      "h": 1,
+      "title": "聊天"
+    },
+    {
+      "id": "desk",
+      "type": "desk",
+      "col": 4,
+      "row": 0,
+      "w": 8,
+      "h": 1,
+      "title": "工作台"
+    }
+  ]
+}

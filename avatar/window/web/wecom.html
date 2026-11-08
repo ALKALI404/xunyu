@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>企微 · 本地聊天组件</title>
+<link rel="stylesheet" href="styles/tokens.css">
+<style>
+  /* WC-008：企微聊天组件（独立视图）。视觉沿用窗口三级底色：
+     L0 = body 渐变（tokens.css 的 --l0-*）；L1 = 顶栏磨砂；L2 = 正文/气泡纯白。 */
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    color:var(--fg);font:13px/1.5 "Microsoft YaHei UI","Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;
+    background:
+      radial-gradient(720px 460px at 78% 106%, var(--l0-spot-cool), transparent 62%),
+      linear-gradient(158deg, var(--l0-a) 0%, var(--l0-b) 100%);
+    background-attachment:fixed;
+  }
+  /* L1 顶栏：状态条（VM / 发送器 / OCR / 上次同步） */
+  .top{
+    flex:none;display:flex;align-items:center;gap:10px;padding:6px 12px;
+    background:var(--l1-bg);
+    -webkit-backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+    backdrop-filter:blur(var(--l1-blur)) saturate(var(--l1-sat));
+    border-bottom:1px solid var(--l1-border);
+    box-shadow:inset 0 1px 0 var(--l1-border), var(--glass-shadow-sm);
+  }
+  html[data-glass="0"] .top{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--panel);box-shadow:none}
+  .top .brand{font-weight:700;letter-spacing:.5px}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);
+        border:1px solid var(--l2-line);border-radius:var(--radius-pill);padding:1px 9px;background:var(--l2-bg)}
+  .pill b{font-weight:600;color:var(--fg)}
+  .pdot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+  .pdot.ok{background:var(--ok)} .pdot.bad{background:var(--bad)} .pdot.warn{background:var(--warn)}
+  .grow{flex:1}
+  .badge-mock{font-size:11px;color:var(--warn);border:1px dashed var(--warn-line);border-radius:var(--radius-pill);padding:0 8px}
+
+  /* 主体：左会话列表（240px，可收起）+ 右消息区 */
+  .main{flex:1;min-height:0;display:flex;gap:8px;padding:8px}
+  .convs{
+    flex:none;width:240px;display:flex;flex-direction:column;min-height:0;
+    background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-panel);
+    box-shadow:var(--l2-shadow);overflow:hidden;
+    transition:width var(--dur-glass) var(--ease-glass),opacity var(--dur-glass) var(--ease-glass);
+  }
+  body.left-closed .convs{width:0;opacity:0;border-width:0}
+  .convsHead{flex:none;display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--l2-line);background:var(--l1-bg)}
+  .convsHead .t{font-weight:600;font-size:12px}
+  .convsHead button{border:1px solid var(--l2-line);background:var(--l2-bg);color:var(--dim);
+    border-radius:var(--radius-pill);padding:0 8px;font:inherit;font-size:12px;cursor:pointer;line-height:20px}
+  .convsHead button:hover{color:var(--fg);background:var(--panel2)}
+  .convList{flex:1;overflow:auto;min-height:0}
+  .conv{display:flex;flex-direction:column;gap:2px;padding:8px 10px;cursor:pointer;border-left:2px solid transparent;
+        border-bottom:1px solid var(--l2-line);transition:background-color var(--dur-glass) var(--ease-glass)}
+  .conv:hover{background:var(--panel2)}
+  .conv.on{background:var(--accent-soft);border-left-color:var(--accent)}
+  .conv .l1{display:flex;align-items:baseline;gap:6px}
+  .conv .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+  .conv .tm{font-size:11px;color:var(--muted);flex:none}
+  .conv .ls{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .conv .un{font-size:10px;background:var(--bad);color:var(--on-accent);border-radius:var(--radius-pill);padding:0 6px;min-width:16px;text-align:center}
+  .conv .un.zero{display:none}
+
+  .chatcol{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;
+           background:var(--l2-bg);border:1px solid var(--l2-line);border-radius:var(--radius-panel);
+           box-shadow:var(--l2-shadow);overflow:hidden}
+  .chatHead{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--l2-line);background:var(--l1-bg)}
+  .chatHead .who{font-weight:600}
+  .chatHead .sub{color:var(--muted);font-size:12px}
+  .stream{flex:1;overflow:auto;min-height:0;padding:12px 18px 6px}
+  .inner{width:100%;max-width:900px;margin:0 auto}   /* 消息区 900 居中（与窗口聊天一致） */
+  .daysep{text-align:center;color:var(--muted);font-size:11px;margin:10px 0 8px}
+  .msg{max-width:76%;margin:0 0 10px;padding:8px 12px;border-radius:var(--radius-bubble);
+       white-space:pre-wrap;word-break:break-word;line-height:1.55;position:relative}
+  .msg.in{background:var(--l2-bg);border:1px solid var(--l2-line);box-shadow:var(--l2-shadow);border-bottom-left-radius:6px}
+  .msg.out{background:linear-gradient(160deg,var(--accent2),var(--accent));color:var(--on-accent);
+           margin-left:auto;border-bottom-right-radius:6px;box-shadow:var(--glass-shadow-sm)}
+  .msg.out.failed{background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad-line)}
+  .msg .meta{display:block;font-size:10px;margin-top:3px;text-align:right;opacity:.75;font-variant-numeric:tabular-nums}
+  .msg .fail{display:block;font-size:11px;margin-top:3px;color:var(--bad);font-weight:600}
+  /* out 的状态点：pending 灰 / sent 蓝 / failed 红 */
+  .dot{position:absolute;top:-5px;right:-5px;width:9px;height:9px;border-radius:50%;border:2px solid var(--l2-bg)}
+  .dot.pending{background:var(--muted)}
+  .dot.sent{background:var(--accent2)}
+  .dot.failed{background:var(--bad)}
+
+  .composer{flex:none;padding:8px 18px 12px}
+  .composer .inner{display:flex;gap:8px;align-items:flex-end}
+  .composer textarea{
+    flex:1;resize:none;height:64px;padding:8px 11px;font:inherit;
+    background:var(--l2-bg);color:var(--fg);outline:none;
+    border:1px solid var(--l2-line);border-radius:var(--radius-ctl);
+    box-shadow:var(--l2-shadow);
+    transition:border-color var(--dur-glass) var(--ease-glass),box-shadow var(--dur-glass) var(--ease-glass);
+  }
+  .composer textarea:focus{border-color:var(--accent);box-shadow:var(--l2-shadow),0 0 0 3px var(--accent-soft)}
+  .send{border:0;border-radius:var(--radius-pill);padding:0 18px;height:38px;cursor:pointer;font-weight:600;
+        background:linear-gradient(160deg,var(--accent2),var(--accent));color:var(--on-accent);
+        box-shadow:var(--glass-shadow-sm);transition:filter var(--dur-glass) var(--ease-glass),transform var(--dur-glass) var(--ease-glass)}
+  .send:hover{filter:brightness(1.06);transform:translateY(var(--lift))}
+  .send:disabled{opacity:.5;cursor:not-allowed}
+  .empty{padding:18px 12px;color:var(--weak);font-size:12px}
+  .err{color:var(--bad);font-size:12px;padding:4px 12px}
+  .tip{color:var(--muted);font-size:11px}
+</style>
+</head>
+<body>
+  <div class="top">
+    <span class="brand">企微</span>
+    <span class="pill" id="p-vm"><i class="pdot"></i>VM <b>—</b></span>
+    <span class="pill" id="p-sender"><i class="pdot"></i>发送器 <b>—</b></span>
+    <span class="pill" id="p-ocr"><i class="pdot"></i>OCR <b>—</b></span>
+    <span class="pill" id="p-sync">上次同步 <b>—</b></span>
+    <span class="grow"></span>
+    <span class="badge-mock" id="mockBadge" style="display:none">mock 数据（后端未就绪）</span>
+    <button class="pinBtn" id="toggleConvs" style="border:1px solid var(--l2-line);background:var(--l2-bg);color:var(--dim);border-radius:var(--radius-pill);padding:1px 10px;font:inherit;font-size:12px;cursor:pointer">◧ 会话</button>
+  </div>
+
+  <div class="main">
+    <aside class="convs" id="convs">
+      <div class="convsHead"><span class="t">会话</span><span class="grow"></span><span class="tip" id="convCount">—</span></div>
+      <div class="convList" id="convList"><div class="empty">读取中…</div></div>
+    </aside>
+
+    <section class="chatcol">
+      <div class="chatHead">
+        <span class="who" id="who">未选会话</span>
+        <span class="sub" id="whoSub">点左边选一个会话</span>
+        <span class="grow"></span>
+        <span class="tip" id="streamTip"></span>
+      </div>
+      <div class="stream" id="stream"><div class="inner" id="streamInner"><div class="empty">选一个会话开始</div></div></div>
+      <div class="composer">
+        <div class="inner">
+          <textarea id="input" placeholder="Enter 发送，Shift+Enter 换行"></textarea>
+          <button class="send" id="btnSend">发送</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  // ── 配置：数据只走 apiBase（来自 config.json；窗口壳里 apiBase 可能为空 ⇒ 用 desk.direct）──
+  var API = { base: 'http://127.0.0.1:9340', mock: false, down: false, injectIn: false, mode: '' };
+  var qs = new URLSearchParams(location.search);
+  API.mode = qs.get('mock') === '1' ? 'force' : (qs.get('mock') === '0' ? 'off' : 'auto');
+  API.down = qs.get('down') === '1';
+  API.injectIn = qs.get('in') === '1';
+
+  var S = { convs: [], conv: null, msgs: {}, seq: {}, pending: [], status: null, lastSync: null, busy: false };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function clock(ts) { if (!ts) return '—'; var d = new Date(ts);
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2); }
+  function stamp(ts) { var d = new Date(ts || Date.now()); return d.toISOString().slice(11, 19); }
+
+  // ── 玻璃开关跟随窗口（localStorage.glass 与 URL ?glass=）──
+  (function glass() {
+    var q = qs.get('glass'); var v = q === '0' || q === '1' ? q : null;
+    if (!v) { try { v = localStorage.getItem('glass'); } catch (e) { } }
+    document.documentElement.setAttribute('data-glass', v === '1' ? '1' : '0');
+  })();
+
+  // ── HTTP ──────────────────────────────────────────────────────────────
+  function url(p) { return API.base.replace(/\/+$/, '') + p; }
+  async function getJson(p, ms) {
+    var ctl = new AbortController(); var t = setTimeout(function () { ctl.abort(); }, ms || 2500);
+    try {
+      var r = await fetch(url(p), { cache: 'no-store', signal: ctl.signal });
+      clearTimeout(t);
+      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return await r.json();
+    } catch (err) { clearTimeout(t); throw err; }
+  }
+  async function postJson(p, body) {
+    var r = await fetch(url(p), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    var j = null; try { j = await r.json(); } catch (e) { j = null; }
+    if (!r.ok) { var err = new Error((j && (j.error || j.detail)) || ('HTTP ' + r.status)); err.status = r.status; throw err; }
+    return j || {};
+  }
+
+  // ── mock（后端 WC-007 未就绪时的本地假数据；截图上会有 mock 角标）──────
+  var MOCK_SEQ = 100; var MOCK = null;
+  function nowMinus(min) { return Date.now() - min * 60000; }
+  function buildMock() {
+    MOCK = {
+      convs: [
+        { id: 'filehelper', name: '文件传输助手', unread: 0, lastTs: nowMinus(2), lastText: '（给自己发的测试消息）' },
+        { id: 'team', name: '测试群（自己人）', unread: 2, lastTs: nowMinus(9), lastText: '这版 UI 什么时候能看？' },
+        { id: 'xunyu', name: '鲟鱼', unread: 0, lastTs: nowMinus(31), lastText: '好，我盯着发送器日志' },
+        { id: 'cs-sample', name: '客服-样例（打码）', unread: 1, lastTs: nowMinus(64), lastText: '在吗？想问下退款流程' }
+      ],
+      msgs: {
+        filehelper: [
+          { seq: 1, dir: 'in', text: '（这条是文件传输助手的历史消息示例）', ts: nowMinus(6) },
+          { seq: 2, dir: 'out', text: '发一条测试，看本地能不能读到', ts: nowMinus(4) },
+          { seq: 3, dir: 'in', text: '收到了，入站 OCR 也读到了', ts: nowMinus(2) }
+        ],
+        team: [
+          { seq: 1, dir: 'out', text: '企微组件 UI 在做了，先出会话列表 + 消息流', ts: nowMinus(25) },
+          { seq: 2, dir: 'in', text: '这版 UI 什么时候能看？', ts: nowMinus(9) }
+        ],
+        xunyu: [
+          { seq: 1, dir: 'in', text: '发送器已在做，outbox 有了心跳', ts: nowMinus(40) },
+          { seq: 2, dir: 'out', text: '好，我盯着发送器日志', ts: nowMinus(31) }
+        ],
+        'cs-sample': [
+          { seq: 1, dir: 'in', text: '在吗？想问下退款流程', ts: nowMinus(64) }
+        ]
+      }
+    };
+    for (var k in MOCK.msgs) { if (MOCK.msgs.hasOwnProperty(k)) MOCK_SEQ = Math.max(MOCK_SEQ, MOCK.msgs[k][MOCK.msgs[k].length - 1].seq); }
+  }
+  function mockSend(conv, text, cid) {
+    if (API.down) {
+      return { ok: false, error: 'sender-down：VM 发送器未运行（wecom-outbox-runner 心跳缺失）' };
+    }
+    var at = Date.now() + 10;
+    // 乐观 pending 之后，1.4 秒后"发送器回读"把它变成 out 消息 ⇒ 轮询时变成 sent
+    setTimeout(function () {
+      MOCK_SEQ += 1;
+      var rec = { seq: MOCK_SEQ, dir: 'out', text: text, ts: Date.now(), outboxId: 'mock-' + cid };
+      if (!MOCK.msgs[conv]) MOCK.msgs[conv] = [];
+      MOCK.msgs[conv].push(rec);
+      var c = MOCK.convs.filter(function (x) { return x.id === conv; })[0];
+      if (c) { c.lastText = text; c.lastTs = rec.ts; }
+    }, 1400);
+    return { ok: true, outboxId: 'mock-' + cid, state: 'pending' };
+  }
+  function mockGet(p) {
+    if (p.indexOf('/api/wecom/status') === 0) {
+      return { vm: { ok: true, detail: 'VM 在线（mock）' },
+               sender: { running: !API.down, detail: API.down ? '发送器未运行（mock 断线）' : 'outbox runner 心跳正常（mock）' },
+               ocr: { ok: false, detail: '入站 OCR 未就绪（WC-009）' },
+               lastSync: Date.now() - 4000 };
+    }
+    if (p.indexOf('/api/wecom/conversations') === 0) return { ok: true, conversations: MOCK.convs };
+    if (p.indexOf('/api/wecom/messages') === 0) {
+      var u = new URL('http://x' + p); var conv = u.searchParams.get('conv'); var after = Number(u.searchParams.get('after') || 0);
+      var list = (MOCK.msgs[conv] || []).filter(function (m) { return m.seq > after; });
+      return { ok: true, messages: list };
+    }
+    var e = new Error('mock: unknown path ' + p); e.status = 404; throw e;
+  }
+  var MOCKLAT = 160;
+  function mockDelay(fn) { return new Promise(function (res, rej) { setTimeout(function () { try { res(fn()); } catch (e) { rej(e); } }, MOCKLAT); }); }
+
+  async function apiGet(p) { if (API.mock) return mockDelay(function () { return mockGet(p); }); return getJson(p); }
+  async function apiSend(conv, text, cid) {
+    if (API.mock) return mockDelay(function () { return mockSend(conv, text, cid); });
+    return postJson('/api/wecom/send', { conv: conv, text: text, clientMsgId: cid });
+  }
+
+  // ── 渲染 ──────────────────────────────────────────────────────────────
+  function renderStatus() {
+    var st = S.status || {};
+    function set(id, ok, text) {
+      var el = $(id); if (!el) return;
+      var d = el.querySelector('.pdot'); var b = el.querySelector('b');
+      d.className = 'pdot ' + (ok === true ? 'ok' : ok === false ? 'bad' : '');
+      b.textContent = text;
+    }
+    var vm = st.vm || {}, sd = st.sender || {}, oc = st.ocr || {};
+    set('p-vm', vm.ok === true ? true : (vm.ok === false ? false : null), vm.ok === true ? '在线' : (vm.ok === false ? '离线' : '—'));
+    set('p-sender', sd.running === true ? true : (sd.running === false ? false : null), sd.running === true ? '运行中' : (sd.running === false ? '未运行' : '—'));
+    set('p-ocr', oc.ok === true ? true : (oc.ok === false ? false : null), oc.ok === true ? '就绪' : (oc.ok === false ? '未就绪' : '—'));
+    var s = $('p-sync'); if (s) s.querySelector('b').textContent = st.lastSync ? clock(st.lastSync) : '—';
+    $('mockBadge').style.display = API.mock ? '' : 'none';
+  }
+
+  function renderConvs() {
+    var box = $('convList');
+    if (!S.convs.length) { box.innerHTML = '<div class="empty">没有会话（接口无数据）</div>'; return; }
+    $('convCount').textContent = S.convs.length + ' 个';
+    box.innerHTML = S.convs.map(function (c) {
+      var un = Number(c.unread || 0);
+      return '<div class="conv' + (c.id === S.conv ? ' on' : '') + '" data-conv="' + esc(c.id) + '">' +
+        '<div class="l1"><span class="nm">' + esc(c.name || c.id) + '</span>' +
+        '<span class="tm">' + clock(c.lastTs) + '</span>' +
+        '<span class="un' + (un ? '' : ' zero') + '">' + un + '</span></div>' +
+        '<div class="ls">' + esc(c.lastText || '') + '</div></div>';
+    }).join('');
+  }
+
+  function renderMsgs() {
+    var box = $('streamInner');
+    var list = S.conv ? (S.msgs[S.conv] || []) : [];
+    if (!S.conv) { box.innerHTML = '<div class="empty">选一个会话开始</div>'; return; }
+    if (!list.length) { box.innerHTML = '<div class="empty">这个会话还没有消息</div>'; return; }
+    var lastDay = '';
+    box.innerHTML = list.map(function (m) {
+      var day = new Date(m.ts || Date.now()).toDateString();
+      var sep = day !== lastDay ? '<div class="daysep">' + new Date(m.ts || Date.now()).toLocaleDateString('zh-CN') + '</div>' : '';
+      lastDay = day;
+      var cls = 'msg ' + (m.dir === 'out' ? 'out' : 'in') + (m.state === 'failed' ? ' failed' : '');
+      var dot = m.dir === 'out' ? '<i class="dot ' + (m.state || 'sent') + '" title="' +
+        (m.state === 'failed' ? ('发送失败：' + (m.reason || '原因未知')) : m.state === 'pending' ? '发送中…' : '已发出') + '"></i>' : '';
+      var fail = (m.dir === 'out' && m.state === 'failed') ? '<span class="fail">发送失败：' + esc(m.reason || '原因未知') + '</span>' : '';
+      return sep + '<div class="' + cls + '">' + dot + esc(m.text) +
+        '<span class="meta">' + stamp(m.ts) + (m.dir === 'out' ? (m.state === 'pending' ? ' · 发送中' : m.state === 'failed' ? ' · 未发出' : ' · 已发出') : '') + '</span>' + fail + '</div>';
+    }).join('');
+    box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  }
+
+  function setWho() {
+    if (!S.conv) { $('who').textContent = '未选会话'; $('whoSub').textContent = '点左边选一个会话'; return; }
+    var c = S.convs.filter(function (x) { return x.id === S.conv; })[0] || {};
+    $('who').textContent = c.name || S.conv;
+    $('whoSub').textContent = 'conv=' + S.conv + (c.unread ? ' · 未读 ' + c.unread : '');
+  }
+
+  // ── 数据流 ────────────────────────────────────────────────────────────
+  async function loadConvs() {
+    var d = await apiGet('/api/wecom/conversations');
+    var list = d.conversations || d.convs || [];
+    S.convs = list;
+    if (!S.conv && list.length) S.conv = list[0].id;
+    renderConvs(); setWho();
+  }
+
+  function mergeServer(list) {
+    if (!S.conv) return 0;
+    var arr = S.msgs[S.conv] || (S.msgs[S.conv] = []);
+    var added = 0;
+    (list || []).forEach(function (m) {
+      if (m.seq > (S.seq[S.conv] || 0)) S.seq[S.conv] = m.seq;
+      // 服务端回读的 out 消息 == 我们那条 pending ⇒ 就地把 pending 升级成 sent，不再插一条
+      if (m.dir === 'out') {
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i].dir === 'out' && arr[i].state !== 'failed' && arr[i].text === m.text && arr[i].serverSeen !== true) {
+            arr[i].state = 'sent'; arr[i].serverSeen = true; arr[i].seq = m.seq; arr[i].ts = m.ts || arr[i].ts;
+            added++;
+            return;
+          }
+        }
+      }
+      if (arr.some(function (x) { return x.seq === m.seq; })) return;
+      arr.push({ seq: m.seq, dir: m.dir, text: m.text, ts: m.ts, state: m.dir === 'out' ? 'sent' : undefined, evidence: m.evidence });
+      added++;
+    });
+    return added;
+  }
+
+  async function loadMsgs() {
+    if (!S.conv) return;
+    var after = S.seq[S.conv] || 0;
+    var d = await apiGet('/api/wecom/messages?conv=' + encodeURIComponent(S.conv) + '&after=' + after);
+    var added = mergeServer(d.messages || []);
+    if (added) { renderMsgs(); }
+    $('streamTip').textContent = 'seq ' + (S.seq[S.conv] || 0) + ' · ' + clock(Date.now());
+  }
+
+  async function loadStatus() {
+    try { S.status = await apiGet('/api/wecom/status'); renderStatus(); } catch (e) { /* 顶栏留 — */ }
+  }
+
+  async function pickConv(id) {
+    S.conv = id;
+    renderConvs(); setWho();
+    // 2026-10-30 23:35：点开会话 → 让 VM 里的企微也切过去，否则 OCR 只读当前画面，
+    // 别的会话永远收不到新消息（主人反馈"许驰的消息不进上下文"就是这个）。
+    try {
+      await fetch('/api/wecom/open', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conv: id }),
+      });
+    } catch (e) { /* 切不过去不影响看历史 */ }
+    if (!S.seq[id]) S.seq[id] = 0;
+    renderMsgs();
+    try { await loadMsgs(); } catch (e) { $('streamInner').innerHTML = '<div class="err">拉消息失败：' + esc(e.message) + '</div>'; }
+  }
+
+  // ── 发送（乐观 pending）──────────────────────────────────────────────
+  async function send() {
+    var ta = $('input'); var text = (ta.value || '').trim();
+    if (!text || !S.conv || S.busy) return;
+    S.busy = true; $('btnSend').disabled = true;
+    var cid = 'c' + Date.now() + Math.random().toString(36).slice(2, 7);
+    var m = { seq: 'local-' + cid, conv: S.conv, dir: 'out', text: text, ts: Date.now(), state: 'pending', clientMsgId: cid };
+    (S.msgs[S.conv] || (S.msgs[S.conv] = [])).push(m);
+    ta.value = ''; renderMsgs();
+    try {
+      var r = await apiSend(S.conv, text, cid);
+      if (r && r.ok) {
+        if (r.state === 'sent') m.state = 'sent';
+        else m.state = 'pending';           // 等轮询回读变 sent
+      } else {
+        m.state = 'failed'; m.reason = (r && (r.error || r.detail)) || '发送失败（接口未给原因）';
+      }
+    } catch (e) {
+      m.state = 'failed'; m.reason = e.message || '发送失败';
+    }
+    renderMsgs();
+    S.busy = false; $('btnSend').disabled = false; ta.focus();
+  }
+
+  // ── 事件 ──────────────────────────────────────────────────────────────
+  $('convList').addEventListener('click', function (e) {
+    var row = e.target.closest ? e.target.closest('.conv') : null;
+    if (row) pickConv(row.getAttribute('data-conv'));
+  });
+  $('toggleConvs').addEventListener('click', function () { document.body.classList.toggle('left-closed'); });
+  $('btnSend').addEventListener('click', send);
+  $('input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  // ── 启动：先判 mock（后端 404 就自动转 mock），再拉数据 + 两个轮询 ──────
+  (async function boot() {
+    try {
+      var c = await (await fetch('config.json', { cache: 'no-store' })).json();
+      API.base = (c.apiBase && String(c.apiBase).trim()) || (c.desk && c.desk.direct) || API.base;
+    } catch (e) { /* 用默认 9340 */ }
+    if (API.mode !== 'force') {
+      try {
+        await getJson('/api/wecom/status', 1800);
+        API.mock = false;
+      } catch (e) {
+        API.mock = API.mode !== 'off';       // 后端没就绪 ⇒ 自动 mock；?mock=0 时保持真接口（用来验 404 提示）
+      }
+    } else { API.mock = true; }
+    if (API.mock) buildMock();
+
+    try { await loadConvs(); } catch (e) { $('convList').innerHTML = '<div class="err">拉会话失败：' + esc(e.message) + '</div>'; }
+    if (S.conv) { try { await loadMsgs(); } catch (e) { } }
+    await loadStatus();
+
+    setInterval(function () { loadMsgs().catch(function () { }); }, 3000);          // 增量轮询 3s（任务书 §1.5）
+    setInterval(function () { loadConvs().catch(function () { }); loadStatus().catch(function () { }); }, 9000);
+
+    // 验收③用：?in=1 时 4 秒后模拟"对方回一句"（入站 OCR 到货）
+    if (API.mock && API.injectIn && S.conv) {
+      setTimeout(function () {
+        MOCK_SEQ += 1;
+        var rec = { seq: MOCK_SEQ, dir: 'in', text: '收到，我这边回了：这条是对方发的（' + stamp(Date.now()) + '）', ts: Date.now() };
+        (MOCK.msgs[S.conv] = MOCK.msgs[S.conv] || []).push(rec);
+      }, 4000);
+    }
+  })();
+})();
+</script>
+</body>
+</html>
